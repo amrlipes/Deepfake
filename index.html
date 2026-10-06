@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<!-- ══════════════════════════════════════════════════════════════════
+     SYNTH::DETECT — Ameaças Sintéticas: O Impacto da IA Ofensiva
+     Dossiê educativo interativo (SPA simulada, sem dependências)
+
+     Estrutura deste arquivo:
+       1. 
+</head>
+<body>
+
+<noscript><p style="padding:16px;font-family:monospace;color:#ff5f56">Este laboratório precisa de JavaScript para simular as varreduras.</p></noscript>
+
+<!-- ══════════════ HEADER ══════════════ -->
+<header class="site-header">
+  <div class="container header-in">
+    <a class="brand" href="#topo">SYNTH<span>::</span>DETECT</a>
+    <nav class="nav" aria-label="Navegação principal">
+      <a href="#briefing">Briefing</a>
+      <a href="#simulador">Simulador</a>
+    </nav>
+    <div class="header-status">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span>ONLINE</span>
+      <span id="clock">--:--:-- UTC</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════════════ HERO ══════════════ -->
+<section class="hero" id="topo">
+  <div class="container hero-grid">
+
+    <div class="hero-copy">
+      <p class="eyebrow">// DOSSIÊ INTERATIVO · SEGURANÇA DE MÍDIA</p>
+      <h1>Ameaças Sintéticas:<br>O Impacto da <em>IA Ofensiva</em><span class="caret" aria-hidden="true"></span></h1>
+      <p class="lead">
+        Vozes que nunca falaram, rostos que nunca existiram, enxames de contas que
+        moldam a opinião pública em escala industrial. Este dossiê desmonta as armas
+        da IA ofensiva — e coloca você no comando do terminal forense que separa
+        o autêntico do sintético.
+      </p>
+      <div class="hero-cta">
+        <a href="#simulador" class="btn btn-primary">Acessar Simulador C2PA</a>
+        <a href="#briefing" class="btn btn-ghost">Ler o briefing</a>
+      </div>
+      <p class="hero-note">PROJETO EDUCATIVO · ANÁLISE 100% LOCAL · NENHUM DADO SAI DO SEU NAVEGADOR</p>
+    </div>
+
+    <!-- Retrato dividido: REAL (esq.) × SINTÉTICO (dir.) — gerado em JS -->
+    <figure class="face-panel panel">
+      <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+      <figcaption class="panel-cap"><span>SPECIMEN_001</span><span>input.capture</span></figcaption>
+      <div class="face-stage" id="faceStage">
+        <div class="face-grid" id="faceGrid" aria-hidden="true"></div>
+        <div class="face-divider" aria-hidden="true"></div>
+        <span class="face-tag tag-real">REAL</span>
+        <span class="face-tag tag-fake">SINTÉTICO</span>
+        <div class="face-scanline" aria-hidden="true"></div>
+      </div>
+      <div class="face-readout" aria-label="Métricas simuladas do espécime">
+        <span>PRNU<b id="roPrnu">0.83</b></span>
+        <span>ARTEFATOS<b id="roArt">12</b></span>
+        <span>DIFUSÃO<b id="roDiff">0.41</b></span>
+      </div>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ══════════════ 01 · BRIEFING TÉCNICO ══════════════ -->
+<section class="sec" id="briefing">
+  <div class="container">
+
+    <div class="sec-head reveal">
+      <span class="sec-num">//01</span>
+      <div>
+        <h2>Briefing técnico</h2>
+        <p>Duas armas ofensivas e uma contramedida em campo — o essencial para ler o simulador com olhos de analista.</p>
+      </div>
+      <span class="sec-rule" aria-hidden="true"></span>
+    </div>
+
+    <!-- VT-01 -->
+    <article class="vt reveal" data-sev="high">
+      <div class="vt-id">
+        <!-- SUBSTITUIR: insira aqui sua pixel art → <img src="assets/pixel/voice.png" alt=""> -->
+        <span class="pixel-icon icon-pixel-voice" style="--icon-size:44px" role="img" aria-label="Ícone: clonagem de voz"></span>
+        <span class="vt-code">VT-01</span>
+      </div>
+      <div class="vt-body">
+        <h3>Clonagem de voz &amp; vishing</h3>
+        <p>Modelos de síntese vocal recriam timbre, cadência e sotaque a partir de poucos segundos de áudio
+           público — um podcast, uma reunião, um reel. O cenário mais lucrativo é o vishing direcionado:
+           a "ligação do diretor financeiro" aprovando uma transferência urgente, com a voz dele.
+           Autenticação bancária por voz, até ontem tratada como fator forte, passa a ser superfície de ataque.</p>
+        <ul class="vt-tags"><li>Síntese neural de voz</li><li>Vishing</li><li>Bypass biométrico</li></ul>
+      </div>
+      <div class="vt-meta">
+        <div class="vt-stat"><strong>3s</strong><span>de áudio bastam para clonar uma voz</span></div>
+        <div>
+          <span class="sev-label">SEVERIDADE</span>
+          <div class="sev-bars" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+          <span class="sev-name">ALTA</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- VT-02 -->
+    <article class="vt reveal" data-sev="crit">
+      <div class="vt-id">
+        <span class="pixel-icon icon-pixel-bot" style="--icon-size:44px" role="img" aria-label="Ícone: botnet de difamação"></span>
+        <span class="vt-code">VT-02</span>
+      </div>
+      <div class="vt-body">
+        <h3>Botnets de difamação</h3>
+        <p>Não é preciso hackear um sistema quando é possível hackear a confiança nele. Enxames de contas
+           automatizadas — alimentadas por LLMs — publicam avaliações falsas, "testemunhas" inventadas e
+           pautas coordenadas em escala industrial: astroturfing a um custo por postagem próximo de zero.
+           O alvo não é o servidor; é o senso comum.</p>
+        <ul class="vt-tags"><li>LLM agents</li><li>Astroturfing</li><li>Sockpuppets</li></ul>
+      </div>
+      <div class="vt-meta">
+        <div class="vt-stat"><strong>10k+</strong><span>postagens sintéticas por hora, por enxame (estimativa didática)</span></div>
+        <div>
+          <span class="sev-label">SEVERIDADE</span>
+          <div class="sev-bars" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          <span class="sev-name">CRÍTICA</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- VT-03 -->
+    <article class="vt reveal" data-sev="def">
+      <div class="vt-id">
+        <span class="pixel-icon icon-pixel-shield" style="--icon-size:44px" role="img" aria-label="Ícone: padrão C2PA"></span>
+        <span class="vt-code">VT-03</span>
+      </div>
+      <div class="vt-body">
+        <h3>C2PA &amp; marcas-d'água invisíveis</h3>
+        <p>A resposta não é detectar tudo que é falso — é provar o que é verdade. O padrão C2PA assina
+           criptograficamente a origem e o histórico de edições de cada mídia (Content Credentials), enquanto
+           marcas-d'água imperceptíveis marcam conteúdo gerado por IA já na fonte. O simulador abaixo
+           reproduz, de forma didática, exatamente essa inspeção.</p>
+        <ul class="vt-tags"><li>Content Credentials</li><li>Watermarking</li><li>Proveniência</li></ul>
+      </div>
+      <div class="vt-meta">
+        <div class="vt-stat"><strong>ECDSA</strong><span>P-256 · assinatura da cadeia de proveniência</span></div>
+        <div>
+          <span class="sev-label">CONTRAMEDIDA</span>
+          <div class="sev-bars" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          <span class="sev-name">EM CAMPO</span>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ══════════════ 02 · SIMULADOR DE INSPEÇÃO ══════════════ -->
+<section class="sec" id="simulador">
+  <div class="container">
+
+    <div class="sec-head reveal">
+      <span class="sec-num">//02</span>
+      <div>
+        <h2>Simulador de inspeção C2PA</h2>
+        <p>Selecione uma mídia, dispare a varredura e acompanhe a análise forense em tempo real: metadados, cadeia criptográfica e artefatos de geração.</p>
+      </div>
+      <span class="sec-rule" aria-hidden="true"></span>
+    </div>
+
+    <div class="sim-grid">
+
+      <!-- Coluna esquerda: controles -->
+      <div class="sim-controls panel reveal" id="simControls">
+        <span class="panel-tag">CONTROLES</span>
+        <p class="panel-label">MÍDIA SOB ANÁLISE</p>
+
+        <label class="slot" data-slot="real">
+          <input type="radio" name="media" value="real">
+          <span class="pixel-icon icon-pixel-photo" aria-hidden="true"></span>
+          <span class="slot-info">
+            <strong class="slot-title">Carregar foto real</strong>
+            <span class="slot-file">foto_origem_c2pa.jpg</span>
+            <span class="slot-meta">JPEG · 2.4 MB · 4032×3024 · assinatura embutida</span>
+          </span>
+          <span class="slot-check" aria-hidden="true"></span>
+        </label>
+
+        <label class="slot" data-slot="fake">
+          <input type="radio" name="media" value="fake">
+          <span class="pixel-icon icon-pixel-fake" aria-hidden="true"></span>
+          <span class="slot-info">
+            <strong class="slot-title">Carregar deepfake</strong>
+            <span class="slot-file">clip_executivo_v3.mp4</span>
+            <span class="slot-meta">MP4 · 8.1 MB · 1920×1080 · origem desconhecida</span>
+          </span>
+          <span class="slot-check" aria-hidden="true"></span>
+        </label>
+
+        <button class="btn btn-primary btn-scan" id="btnScan" type="button" disabled>
+          <span class="pixel-icon icon-pixel-scan" style="--icon-size:18px;--pi-1:currentColor" aria-hidden="true"></span>
+          <span class="btn-scan-label" id="btnScanLabel">Iniciar varredura</span>
+          <span class="spin" id="btnSpin" hidden aria-hidden="true"></span>
+        </button>
+
+        <div class="scan-status s-idle" id="scanStatus" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="scanStatusText">aguardando seleção de mídia</span>
+        </div>
+
+        <div class="verdict" id="verdict" hidden></div>
+      </div>
+
+      <!-- Coluna direita: terminal -->
+      <div class="term reveal">
+        <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="term-head">
+          <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="term-title">forensic-shell — c2pa-inspector v2.4.1</span>
+          <span class="term-badge">LOCAL</span>
+        </div>
+        <div class="term-body" id="termBody" role="log" aria-label="Saída do terminal de análise"></div>
+        <div class="term-input-row">
+          <span class="term-prompt" aria-hidden="true">guest@forensic:~$</span>
+          <input id="termInput" autocomplete="off" spellcheck="false" aria-label="Digite um comando no terminal" placeholder="digite help">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ══════════════ FOOTER ══════════════ -->
+<footer>
+  <div class="container footer-in">
+    <div class="footer-block">
+      <strong>SYNTH::DETECT</strong><br>
+      Dossiê interativo sobre deepfakes, mídia sintética e IA ofensiva.
+    </div>
+    <div class="footer-block">
+      AVISO EDUCATIVO<br>
+      Toda a inspeção é simulada no navegador. Nenhuma mídia é enviada ou armazenada.
+    </div>
+    <div class="footer-block">
+      BUILD<br>
+      Estático · GitHub Pages / Vercel ready · extensível via fetch/API (ver comentários no código).
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+
+
+</body>
+</html>
