@@ -107,7 +107,7 @@ const HeroFace = (() => {
       });
     });
     const at = (r, c) => cells[r * 16 + c];
-    const hasArt = (r, c) => ART[r][c] !== '.';
+    const hasArt = (r, c) => ART[r][c] !== '.'; 
 
     // Glitch: acende um pixel vermelho por ~150ms na metade sintética
     function glitch(el) {
