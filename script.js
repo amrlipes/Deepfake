@@ -1,22 +1,23 @@
 'use strict';
 /* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.2
-   Novidade v6.2 — FORGE::FACE · REVIVER: a foto parada ganha movimento
-   (mandíbula/pálpebras/sway/sobrancelhas por warping de landmarks),
-   com driver procedural de fala OU dirigido pela voz do operador (mic),
-   e clipe WEBM gravado com a trilha de voz embutida.
+   script.js — SYNTH::DETECT v6.3
+   Novidade v6.3 — REVIVER realista:
+   · motor de warping por faixas/colunas (máscaras cosseno elevado)
+   · mandíbula com perfil de rotação (não translação rígida)
+   · interior de boca: cavidade + dentes + sombra do lábio
+   · cantos dos lábios: largura por centroide espectral (voz) ou
+     sílaba (procedural); pucker em sons redondos
+   · pálpebra que ESTICA para piscar (não squash); arregalar
+   · sobrancelhas (levantar/franzir), bochechas, squint no sorriso
+   · olhar vivo: sacadas da íris (refineLandmarks) + deriva micro
+   · ênfase: transientes de voz → sobrancelha + aceno de cabeça
+   · controlador de humor: auto / neutro / sorriso / surpresa / sério
+   · fala procedural silábica (frases, envelopes, pausas)
 
    Sumário:
-     ├── CONFIG / Util
-     ├── PixelArt / Terminal
-     ├── ForensicCore  → MOTOR de detecção (DOM-free)
-     ├── VideoLab      → quadros + ELA por quadro (DOM)
-     ├── PixelLab      → ELA em grade p/ imagens (DOM)
-     ├── ForgeArtifacts→ deck de artefatos
-     ├── DSP da FORGE  → voz
-     ├── VoiceForge    → conversão de voz
-     ├── FaceForge     → live · foto · REVIVER (reencenação de foto)
-     └── App           → orquestração + submitBlob()
+     CONFIG/Util · PixelArt · Terminal · ForensicCore (detecção,
+     DOM-free) · VideoLab · PixelLab · ForgeArtifacts · DSP da FORGE
+     · VoiceForge · FaceForge (live · photo · REVIVER) · App
 ═════════════════════════════════════════════════════════════════ */
 
 const CONFIG = {
@@ -467,7 +468,7 @@ const ForensicCore = (() => {
     if (dims) emit('dimensões (' + sofName + '): ' + dims.w + '×' + dims.h + ' px', 'ok');
     if (eoi < 0) emit('EOI não localizado — arquivo truncado ou estrutura anômala', 'err');
     else if (S.trailing > 0) emit(S.trailing + ' bytes de dados APÓS o EOI — possível payload anexado', 'err');
-    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dados anexado após o fim da imagem', 'ok');
+    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dado anexado após o fim da imagem', 'ok');
     if (desync) emit('dessincronização de marcadores a partir de ' + hex4(pos) + ' — estrutura não padrão', 'warn');
     S.scans = scans;
   }
@@ -519,7 +520,7 @@ const ForensicCore = (() => {
     if (idat.length) emit('IDAT ×' + idat.length + ' · ' + idat.reduce((a, c) => a + c.length, 0) + ' B de dados de imagem', 'plain');
     if (S.dims) emit('dimensões (IHDR): ' + S.dims.w + '×' + S.dims.h + ' px', 'ok');
     if (trailing > 0) emit(trailing + ' bytes de dados APÓS o IEND — possível payload anexado', 'err');
-    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dados anexado', 'ok');
+    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dado anexado', 'ok');
     if (corrupt) emit('declaração de tamanho de chunk inconsistente com o arquivo — estrutura corrompida', 'err');
     S.trailing = trailing; S.corrupt = corrupt;
   }
@@ -2290,14 +2291,18 @@ const VoiceForge = (() => {
 
 /* ═══════════════════════════════════════════════════════════════
    FACEFORGE — reencenação facial
-   ─ live:  webcam + FaceMesh 468 landmarks (marionete, swap, smooth, glitch)
+   ─ live:  webcam + FaceMesh (marionete, swap, smooth, glitch)
    ─ photo: still (enxerto, smooth, glitch)
-   ─ photo + REVIVER: a foto parada ganha movimento — warping por
-     landmarks: mandíbula/pálpebras/sway/sobrancelhas dirigidos por
-     driver procedural de fala OU pela voz do operador (RMS do mic).
-     Clipes podem ser gravados COM a trilha de voz (deepfake completo).
+   ─ photo + REVIVER v2 (realismo): motor de warping por faixas
+     (bandas/colunas com máscara cosseno), mandíbula com perfil de
+     rotação, pálpebra que estica, sobrancelhas/bochechas/squint,
+     olhar por sacadas da íris (refineLandmarks), ênfase por
+     transientes de voz, humor (auto/presets), fala silábica.
 ════════════════════════════════════════════════════════════════ */
 const FaceForge = (() => {
+  const TAU = Math.PI * 2;
+  const ss = (a, b, x) => { x = Math.min(1, Math.max(0, (x - a) / (b - a))); return x * x * (3 - 2 * x); };
+
   const video = $('#ffVideo'), cvs = $('#ffCanvas'), empty = $('#ffEmpty');
   const $st = $('#ffStatus'), $ro = $('#ffReadout');
   const fxBtns = $$('#ffFx .chip');
@@ -2305,6 +2310,7 @@ const FaceForge = (() => {
   const btnSwap   = $('#ffFx [data-fx="swap"]');
   const $photoBtn = $('#ffPhotoBtn'), $photoIn = $('#ffPhotoInput'), $consent = $('#ffConsent');
   const $reviveBtn = $('#ffRevive'), $voiceBtn = $('#ffVoice');
+  const moodBtns = $$('#ffMood .chip');
   const ctx = cvs.getContext('2d', { willReadFrequently: true });
   const fx = { puppet:false, swap:false, smooth:false, glitch:false };
   let stream = null, running = false, lm = null, fm = null, fmState = 'idle';
@@ -2312,17 +2318,31 @@ const FaceForge = (() => {
   let mode = 'live';
   let photoCv = null, photoName = '';
   let graft = { dx: 0, dy: 0, s: 1.05, rot: 0.03 };
-  let lastTs = 0;
   const tiny = document.createElement('canvas');
   const mtmp = document.createElement('canvas');
   const headCv = document.createElement('canvas');
   const radial = document.createElement('canvas');
-  const jawMask = document.createElement('canvas');
+  const scv = document.createElement('canvas');       // scratch dos warps
+  let maskH = null, maskV = null;                      // máscaras cosseno (banda/coluna)
 
-  /* — estado do REVIVER (reencenação da foto) — */
-  const revive = { on:false, voice:false, t0:0, mouth:0.05, mouthTarget:0.05,
-                   speaking:false, nextSwitch:0.2, blinkStart:-9, blinkDur:0.16, nextBlink:1.5,
-                   analyser:null, ac:null, micStream:null, tbuf:null };
+  /* ── estado do REVIVER ── */
+  const MOODS = {
+    neutro:   { brow:.06,  smile:.10, squint:.02, knit:0,   wide:0 },
+    sorriso:  { brow:.12,  smile:.85, squint:.32, knit:0,   wide:0 },
+    surpresa: { brow:.95,  smile:.05, squint:-.20, knit:0,  wide:1 },
+    serio:    { brow:-.28, smile:.02, squint:.14, knit:.40, wide:0 }
+  };
+  const rv = {
+    on:false, voice:false, t0:0, lastT:0,
+    mouth:.04, width:0,
+    syls:null, si:0, sylsEnd:0, restUntil:0,
+    blinkStart:-9, blinkDur:.15, nextBlink:1.2, blink:0,
+    gazeX:0, gazeY:0, gazeTX:0, gazeTY:0, nextSac:.6, sacT:0, sacDur:.1,
+    moodPreset:'auto',
+    cur:{ ...MOODS.neutro }, tgt:{ ...MOODS.neutro }, nextMood:2.5,
+    emph:0, nod:0, prevRms:0,
+    analyser:null, ac:null, micStream:null, tbuf:null, fbuf:null
+  };
 
   const P = i => { const p = lm[i]; return { x: p.x * W, y: p.y * H }; };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -2337,34 +2357,49 @@ const FaceForge = (() => {
     return { x: W * 0.30, y: H * 0.12, w: W * 0.40, h: H * 0.68, cx: W * 0.5, cy: H * 0.46 };
   }
 
-  /* pontos-chave da face (landmarks reais OU fallback por proporção) */
-  function pts(box){
+  /* geometria da face: landmarks (com íris) OU fallback proporcional */
+  function faceGeom(box){
     if (lm){
       const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
       const d = dist;
-      const cOf = arr => ({ x: arr.reduce((a, p) => a + p.x, 0) / arr.length,
-                            y: arr.reduce((a, p) => a + p.y, 0) / arr.length });
+      const eyeL = { c: mid(P(33), P(133)),  w: d(P(33), P(133)),  h: d(P(159), P(145)) / 2 };
+      const eyeR = { c: mid(P(362), P(263)), w: d(P(362), P(263)), h: d(P(386), P(374)) / 2 };
       return {
-        mouth: mid(P(13), P(14)),
-        mouthW: d(P(61), P(291)),
-        chin: P(152),
-        eyeL: { c: cOf([P(33), P(133), P(159), P(145)]), w: d(P(33), P(133)) / 2, h: d(P(159), P(145)) / 2 },
-        eyeR: { c: cOf([P(362), P(263), P(386), P(374)]), w: d(P(362), P(263)) / 2, h: d(P(386), P(374)) / 2 },
-        browL: P(105), browR: P(334)
+        box,
+        mouth: mid(P(13), P(14)), upperLip: P(0), chin: P(152),
+        mouthW: d(P(61), P(291)), cornerL: P(61), cornerR: P(291),
+        eyeL, eyeR,
+        browL: P(105), browR: P(334), innerL: P(55), innerR: P(285),
+        cheekL: P(205), cheekR: P(425),
+        irisL: lm.length > 477 ? P(468) : null,
+        irisR: lm.length > 477 ? P(473) : null
       };
     }
     const x = box.x, y = box.y, w = box.w, h = box.h;
+    const mkEye = cx => ({ c: { x: cx, y: y + h * .40 }, w: w * .18, h: w * .032 });
     return {
-      mouth: { x: box.cx, y: y + h * 0.70 },
-      mouthW: w * 0.36,
-      chin: { x: box.cx, y: y + h * 0.97 },
-      eyeL: { c: { x: box.cx - w * 0.16, y: y + h * 0.40 }, w: w * 0.09, h: w * 0.032 },
-      eyeR: { c: { x: box.cx + w * 0.16, y: y + h * 0.40 }, w: w * 0.09, h: w * 0.032 },
-      browL: { x: box.cx - w * 0.17, y: y + h * 0.32 },
-      browR: { x: box.cx + w * 0.17, y: y + h * 0.32 }
+      box,
+      mouth: { x: box.cx, y: y + h * .70 }, upperLip: { x: box.cx, y: y + h * .665 }, chin: { x: box.cx, y: y + h * .97 },
+      mouthW: w * .36, cornerL: { x: box.cx - w * .18, y: y + h * .70 }, cornerR: { x: box.cx + w * .18, y: y + h * .70 },
+      eyeL: mkEye(box.cx - w * .16), eyeR: mkEye(box.cx + w * .16),
+      browL: { x: box.cx - w * .17, y: y + h * .32 }, browR: { x: box.cx + w * .17, y: y + h * .32 },
+      innerL: { x: box.cx - w * .08, y: y + h * .33 }, innerR: { x: box.cx + w * .08, y: y + h * .33 },
+      cheekL: { x: box.cx - w * .20, y: y + h * .55 }, cheekR: { x: box.cx + w * .20, y: y + h * .55 },
+      irisL: null, irisR: null
     };
   }
 
+  /* ── máscaras e motor de warping ── */
+  function mkMask(vert){
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const g = c.getContext('2d');
+    const gr = vert ? g.createLinearGradient(0, 0, 0, 64) : g.createLinearGradient(0, 0, 64, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,0)');
+    gr.addColorStop(.5, 'rgba(255,255,255,1)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    return c;
+  }
   function buildRadial(){
     radial.width = radial.height = 256;
     const r = radial.getContext('2d');
@@ -2374,20 +2409,68 @@ const FaceForge = (() => {
     g.addColorStop(1, 'rgba(255,255,255,0)');
     r.fillStyle = g; r.fillRect(0, 0, 256, 256);
   }
-  function buildJawMask(){
-    jawMask.width = 256; jawMask.height = 256;
-    const m = jawMask.getContext('2d');
-    const g = m.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.18, 'rgba(255,255,255,0)');
-    g.addColorStop(0.36, 'rgba(255,255,255,1)');
-    g.addColorStop(0.86, 'rgba(255,255,255,1)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    m.fillStyle = g; m.fillRect(0, 0, 256, 256);
+
+  /* warp por faixas horizontais: fn(cy) → dy (deslocamento vertical)
+     faixas com sobreposição 50% e máscara cosseno → pesos somam ~1  */
+  function warpBands(x, y, w, h, fn){
+    if (!maskH) maskH = mkMask(true);
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    if (w < 4 || h < 6) return;
+    x = Math.max(0, Math.min(W - w, x));
+    if (y + h > H) h = H - y;
+    if (h < 6) return;
+    const N = Math.max(3, Math.min(9, Math.round(h / 16)));
+    const step = h / N;
+    for (let j = 0; j < N; j++){
+      const cy = y + step * (j + .5);
+      const dy = fn(cy);
+      if (Math.abs(dy) < .25) continue;
+      let sy = Math.round(cy - step), bh = Math.round(step * 2);
+      if (sy < 0){ bh += sy; sy = 0; }
+      if (sy + bh > H) bh = H - sy;
+      if (bh < 2) continue;
+      scv.width = w; scv.height = bh;
+      const s2 = scv.getContext('2d');
+      s2.clearRect(0, 0, w, bh);
+      s2.drawImage(photoCv, x, sy, w, bh, 0, 0, w, bh);
+      s2.globalCompositeOperation = 'destination-in';
+      s2.drawImage(maskH, 0, 0, 64, 64, 0, 0, w, bh);
+      s2.globalCompositeOperation = 'source-over';
+      ctx.drawImage(scv, x, sy + dy);
+    }
   }
 
-  /* patch com feather (radial OU máscara própria) recortado da foto,
-     redesenhado com translate/scale/rotate em torno do pivô (cx,cy) */
+  /* warp por colunas: fn(cx) → {dx, dy} (cantos da boca etc.) */
+  function warpCols(x, y, w, h, fn){
+    if (!maskV) maskV = mkMask(false);
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    if (w < 6 || h < 4) return;
+    y = Math.max(0, Math.min(H - h, y));
+    if (x + w > W) w = W - x;
+    if (w < 6) return;
+    const N = Math.max(3, Math.min(9, Math.round(w / 14)));
+    const step = w / N;
+    for (let j = 0; j < N; j++){
+      const cx = x + step * (j + .5);
+      const d = fn(cx);
+      if (Math.abs(d.dx) < .25 && Math.abs(d.dy) < .25) continue;
+      let sx = Math.round(cx - step), bw = Math.round(step * 2);
+      if (sx < 0){ bw += sx; sx = 0; }
+      if (sx + bw > W) bw = W - sx;
+      if (bw < 2) continue;
+      scv.width = bw; scv.height = h;
+      const s2 = scv.getContext('2d');
+      s2.clearRect(0, 0, bw, h);
+      s2.drawImage(photoCv, sx, y, bw, h, 0, 0, bw, h);
+      s2.globalCompositeOperation = 'destination-in';
+      s2.drawImage(maskV, 0, 0, 64, 64, 0, 0, bw, h);
+      s2.globalCompositeOperation = 'source-over';
+      ctx.drawImage(scv, sx + d.dx, y + d.dy);
+    }
+  }
+
+  /* patch com feather radial, recortado da foto e transformado
+     em torno do pivô (cx,cy) — usado por íris/olho/enxerto */
   function drawFeathered(sx, sy, sw, sh, cx, cy, o = {}){
     if (!radial.width) buildRadial();
     sw = Math.max(4, Math.round(sw)); sh = Math.max(4, Math.round(sh));
@@ -2424,9 +2507,10 @@ const FaceForge = (() => {
   async function start(){
     if (mode === 'photo'){ photoCv = null; photoName = ''; }
     clearFx();
-    revive.on = false;
+    rv.on = false;
     $reviveBtn.classList.remove('on');
-    if (revive.voice) stopVoiceDrive();
+    if (rv.voice) stopVoiceDrive();
+    moodBtns.forEach(b => b.disabled = true);
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 } }, audio: false });
     } catch (e){
@@ -2480,9 +2564,9 @@ const FaceForge = (() => {
     }
     releaseCamera();
     clearFx();
-    revive.on = false;
+    rv.on = false;
     $reviveBtn.classList.remove('on');
-    if (revive.voice) stopVoiceDrive();
+    if (rv.voice) stopVoiceDrive();
     photoName = f.name;
     mode = 'photo';
     empty.hidden = true;
@@ -2491,47 +2575,49 @@ const FaceForge = (() => {
     btnPuppet.disabled = true;
     $reviveBtn.disabled = false;
     $voiceBtn.disabled = false;
+    moodBtns.forEach(b => b.disabled = false);
     ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
     setSt('foto carregada');
     $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
-      'Clique em <b>reviver</b> para a foto ganhar movimento (fala, piscadas, sway) — ou dirija a boca pela sua voz. ' +
-      'O enxerto, a suavização e o glitch continuam disponíveis.';
+      'Clique em <b>reviver</b>: a foto fala (mandíbula e lábios em warp), pisca, muda de humor e desvia o olhar. ' +
+      'Ative o driver de voz para a boca seguir a sua fala — e grave o clipe com a trilha.';
     Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
     running = true;
-    lastTs = 0;
     loop();
     loadMesh();
   }
 
-  /* ── REVIVER: liga/desliga a reencenação da foto ── */
+  /* ── REVIVER: liga/desliga ── */
   function toggleRevive(){
     if (mode !== 'photo' || !photoCv) return;
-    revive.on = !revive.on;
-    $reviveBtn.classList.toggle('on', revive.on);
-    if (revive.on){
-      revive.t0 = performance.now();
-      revive.nextSwitch = 0.2;
-      revive.nextBlink = 1 + Math.random() * 2;
-      revive.blinkStart = -9;
-      revive.mouth = 0.05;
-      setSt('foto animada');
-      $ro.innerHTML = 'reencenação ATIVA — a foto fala (driver procedural), pisca e balança: ' +
-        'warping por landmarks, a mecânica por trás de LivePortrait / Deep Nostalgia. ' +
+    rv.on = !rv.on;
+    $reviveBtn.classList.toggle('on', rv.on);
+    if (rv.on){
+      rv.t0 = performance.now();
+      rv.lastT = 0;
+      rv.syls = null; rv.si = 0; rv.sylsEnd = 0; rv.restUntil = 0;
+      rv.mouth = .04; rv.width = 0;
+      rv.nextBlink = .8 + Math.random(); rv.nextSac = .4;
+      rv.nextMood = 1.5;
+      rv.emph = 0; rv.nod = 0;
+      setSt(rv.voice ? 'foto animada (voz)' : 'foto animada');
+      $ro.innerHTML = 'reencenação ATIVA — warp por faixas: mandíbula com perfil de rotação, pálpebra que estica, ' +
+        'expressões pelo humor (auto ou chips), sacadas de olhar e ênfase na fala. ' +
         'Grave o clipe e envie ao detector.';
-      Terminal.log('[FORGE::FACE] reencenação ativada (driver procedural: fala, piscadas, sway, respiração)', 'ok');
+      Terminal.log('[FORGE::FACE] reencenação v2 ativada (warp por faixas · expressões · olhar · ênfase)', 'ok');
     } else {
-      setSt(revive.voice ? 'foto animada (voz)' : 'foto carregada');
+      setSt(rv.voice ? 'foto animada (voz)' : 'foto carregada');
       $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
       Terminal.log('[FORGE::FACE] reencenação pausada', 'plain');
     }
   }
 
-  /* ── REVIVER: driver pela voz do operador (mic → RMS → boca) ── */
+  /* ── REVIVER: driver pela voz do operador ── */
   async function toggleVoiceDrive(){
-    if (revive.voice){ stopVoiceDrive(); return; }
+    if (rv.voice){ stopVoiceDrive(); return; }
     if (mode !== 'photo' || !photoCv) return;
     try {
-      revive.micStream = await navigator.mediaDevices.getUserMedia({
+      rv.micStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
       });
     } catch (e){
@@ -2539,31 +2625,31 @@ const FaceForge = (() => {
       return;
     }
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    revive.ac = new Ctx();
-    const src = revive.ac.createMediaStreamSource(revive.micStream);
-    revive.analyser = revive.ac.createAnalyser();
-    revive.analyser.fftSize = 512;
-    src.connect(revive.analyser);
-    revive.voice = true;
+    rv.ac = new Ctx();
+    const src = rv.ac.createMediaStreamSource(rv.micStream);
+    rv.analyser = rv.ac.createAnalyser();
+    rv.analyser.fftSize = 512;
+    src.connect(rv.analyser);
+    rv.voice = true;
     $voiceBtn.classList.add('on');
-    if (!revive.on) toggleRevive();
+    if (!rv.on) toggleRevive();
     setSt('foto animada (voz)');
-    $ro.innerHTML = 'driver por VOZ ativo — <b>fale no microfone</b> e a boca da foto segue a sua voz ' +
-      '(envelope de energia — a mecânica do Wav2Lip). Grave o clipe: ele sai <b>com a sua trilha</b> ' +
-      'para a bancada analisar vídeo + áudio de uma vez.';
-    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS do mic dirige a abertura labial da foto (mecânica Wav2Lip)', 'ok');
+    $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca segue a sua fala (RMS → abertura; ' +
+      'centroide espectral → largura; transientes → ênfase com sobrancelha e aceno). ' +
+      'Grave o clipe: sai <b>com a sua trilha</b> para a bancada analisar vídeo + áudio de uma vez.';
+    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS/centroide do mic dirigem boca e ênfase (mecânica Wav2Lip)', 'ok');
   }
   function stopVoiceDrive(){
-    revive.voice = false;
-    revive.analyser = null;
-    if (revive.micStream){ revive.micStream.getTracks().forEach(t => t.stop()); revive.micStream = null; }
-    if (revive.ac){ try { revive.ac.close(); } catch {} revive.ac = null; }
+    rv.voice = false;
+    rv.analyser = null; rv.tbuf = null; rv.fbuf = null; rv.prevRms = 0;
+    if (rv.micStream){ rv.micStream.getTracks().forEach(t => t.stop()); rv.micStream = null; }
+    if (rv.ac){ try { rv.ac.close(); } catch {} rv.ac = null; }
     $voiceBtn.classList.remove('on');
-    if (revive.on) setSt('foto animada');
+    if (rv.on) setSt('foto animada');
     Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain');
   }
 
-  /* ── tracking (FaceMesh via CDN; degrada p/ fallback por proporção) ── */
+  /* ── tracking (FaceMesh via CDN; degrada p/ fallback proporcional) ── */
   async function meshOnce(){
     try { await fm.send({ image: mode === 'photo' ? photoCv : video }); } catch {}
   }
@@ -2582,17 +2668,17 @@ const FaceForge = (() => {
         setTimeout(() => rej(new Error('timeout')), 15000);
       });
       fm = new self.FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
-      fm.setOptions({ maxNumFaces: 1, refineLandmarks: false, minDetectionConfidence: .5, minTrackingConfidence: .5 });
+      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: .5, minTrackingConfidence: .5 });
       fm.onResults(r => { lm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; });
       fmState = 'on';
-      setSt(revive.on ? (revive.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'live' ? 'tracking ativo (468 pts)' : 'foto carregada'));
+      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'live' ? 'tracking ativo (478 pts)' : 'foto carregada'));
       if (mode === 'live') btnPuppet.disabled = false;
       meshLoop();
     } catch (e){
       fmState = 'fail';
       setSt('tracking indisponível');
       btnPuppet.disabled = true;
-      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — a reencenação usa proporções estimadas da face; marionete desabilitada.';
+      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — a reencenação usa proporções estimadas da face (sem olhar por íris); marionete desabilitada.';
     }
   }
   async function meshLoop(){
@@ -2603,62 +2689,133 @@ const FaceForge = (() => {
     }
   }
 
-  /* ── REVIVER: um frame da animação ── */
-  function drawRevive(box){
-    if (!radial.width) buildRadial();
-    if (!jawMask.width) buildJawMask();
-    const r = revive, p = pts(box);
-    const t = (performance.now() - r.t0) / 1000;
+  /* ═══ DRIVERS ═══ */
 
-    /* driver da boca: voz (RMS) OU fala procedural */
-    if (r.voice && r.analyser){
-      if (!r.tbuf) r.tbuf = new Uint8Array(r.analyser.fftSize);
-      r.analyser.getByteTimeDomainData(r.tbuf);
+  /* boca: voz (RMS + centroide) OU fala procedural silábica; ênfase */
+  function driveMouth(t, dt){
+    if (rv.voice && rv.analyser){
+      if (!rv.tbuf){ rv.tbuf = new Uint8Array(rv.analyser.fftSize); rv.fbuf = new Uint8Array(rv.analyser.frequencyBinCount); }
+      rv.analyser.getByteTimeDomainData(rv.tbuf);
       let s = 0;
-      for (let i = 0; i < r.tbuf.length; i++){ const v = (r.tbuf[i] - 128) / 128; s += v * v; }
-      const rms = Math.sqrt(s / r.tbuf.length);
-      r.mouthTarget = Math.max(0.04, Math.min(1, (rms - 0.015) * 7));
-    } else {
-      if (t > r.nextSwitch){
-        r.speaking = !r.speaking;
-        r.nextSwitch = t + (r.speaking ? 0.5 + Math.random() * 1.4 : 0.3 + Math.random() * 1.0);
+      for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
+      const rms = Math.sqrt(s / rv.tbuf.length);
+      const tgt = Math.max(.03, Math.min(1, (rms - .012) * 6.5));
+      rv.mouth += (tgt - rv.mouth) * (tgt > rv.mouth ? .55 : .16);   // ataque rápido, soltura lenta
+      /* largura pela energia aguda (centroide): agudo = boca larga */
+      rv.analyser.getByteFrequencyData(rv.fbuf);
+      let num = 0, den = 0;
+      const bins = rv.fbuf.length, nyq = rv.ac.sampleRate / 2;
+      for (let i = 2; i < bins; i++){ const f = i * nyq / bins; num += f * rv.fbuf[i]; den += rv.fbuf[i]; }
+      const cent = den > 0 ? num / den : 1500;
+      const wide = Math.max(-.6, Math.min(1, (cent - 1400) / 2300));
+      rv.width += ((rms > .02 ? wide : 0) - rv.width) * .22;
+      /* ênfase por transiente de energia */
+      const d = rms - rv.prevRms;
+      rv.prevRms = rms * .65 + rv.prevRms * .35;
+      if (d > .018){
+        rv.emph = Math.min(1, rv.emph + d * 9);
+        rv.nod = Math.max(rv.nod, Math.min(1, d * 14));
       }
-      if (r.speaking){
-        const a = Math.abs(Math.sin(2 * Math.PI * 4.6 * t));
-        const b = Math.abs(Math.sin(2 * Math.PI * 7.1 * t + 1.7));
-        const c = Math.abs(Math.sin(2 * Math.PI * 2.8 * t + 0.5));
-        r.mouthTarget = Math.min(1, 0.10 + (0.5 * a + 0.32 * b + 0.18 * c) * 1.25);
-      } else r.mouthTarget = 0.05;
+    } else {
+      /* fala procedural: frases de 2–6 sílabas com envelopes e pausas */
+      if ((!rv.syls || t >= rv.sylsEnd) && t >= rv.restUntil){
+        const n = 2 + Math.floor(Math.random() * 5);
+        rv.syls = []; rv.si = 0;
+        let tt = t + .02;
+        for (let i = 0; i < n; i++){
+          const dur = .11 + Math.random() * .17, gap = .015 + Math.random() * .05;
+          rv.syls.push({ t0: tt, t1: tt + dur, amp: .32 + Math.random() * .68, wide: Math.random() * 1.5 - .6 });
+          tt += dur + gap;
+        }
+        rv.sylsEnd = rv.syls[n - 1].t1;
+        rv.restUntil = rv.sylsEnd + .35 + Math.random() * 1.15;
+      }
+      if (rv.syls){
+        const s = rv.syls[rv.si];
+        if (s && t >= s.t0){
+          rv.emph = Math.min(1, rv.emph + s.amp * .5);
+          rv.nod = Math.max(rv.nod, s.amp * .7);
+          rv.si++;
+        }
+        const cur = rv.syls[rv.si - 1];
+        if (cur && t <= cur.t1){
+          const p = (t - cur.t0) / (cur.t1 - cur.t0);
+          const env = Math.sin(Math.PI * Math.min(1, Math.max(0, p)));
+          rv.mouth += (Math.max(.04, cur.amp * env) - rv.mouth) * .5;
+          rv.width += (cur.wide * env - rv.width) * .38;
+        } else {
+          rv.mouth += (.04 - rv.mouth) * .16;
+          rv.width += (0 - rv.width) * .16;
+        }
+      }
     }
-    r.mouth += (r.mouthTarget - r.mouth) * 0.35;
+    rv.emph *= Math.exp(-dt * 5);
+    rv.nod *= Math.exp(-dt * 5.5);
+  }
 
-    /* piscada (com piscada dupla ocasional) */
-    if (t > r.nextBlink){
-      r.blinkStart = t;
-      r.blinkDur = 0.13 + Math.random() * 0.07;
-      r.nextBlink = t + (Math.random() < 0.12 ? 0.28 : 1.7 + Math.random() * 3.6);
+  /* humor: auto (deriva) ou preset — interpolação suave */
+  function driveEmotion(t, dt){
+    if (t > rv.nextMood){
+      rv.nextMood = t + 2.5 + Math.random() * 4;
+      if (rv.moodPreset === 'auto'){
+        const pool = ['neutro','neutro','sorriso','neutro','serio','sorriso','surpresa','neutro'];
+        const m = { ...MOODS[pool[Math.floor(Math.random() * pool.length)]] };
+        m.smile *= .45 + Math.random() * .55;
+        m.brow  *= .6 + Math.random() * .4;
+        rv.tgt = m;
+      } else rv.tgt = { ...MOODS[rv.moodPreset] };
     }
-    const bp = (t - r.blinkStart) / r.blinkDur;
-    r.blink = (bp >= 0 && bp <= 1) ? Math.sin(Math.PI * bp) : 0;
+    const k = 1 - Math.exp(-dt * 1.9);
+    for (const key in rv.tgt) rv.cur[key] = (rv.cur[key] || 0) + ((rv.tgt[key] || 0) - (rv.cur[key] || 0)) * k;
+  }
 
-    /* sway de cabeça + respiração + sobrancelha */
-    const rot = 0.015 * Math.sin(2 * Math.PI * 0.29 * t + 0.3) + 0.007 * Math.sin(2 * Math.PI * 0.73 * t + 1.1);
-    const htx = box.w * 0.008 * Math.sin(2 * Math.PI * 0.19 * t + 0.7);
-    const hty = box.h * 0.005 * Math.sin(2 * Math.PI * 0.41 * t + 2.0);
-    const breathe = 1 + 0.004 * Math.sin(2 * Math.PI * 0.21 * t);
-    const brow = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.11 * t + 0.9);
+  /* olhar: sacadas rápidas + deriva micro; fala centraliza */
+  function driveGaze(t){
+    if (t > rv.nextSac){
+      rv.nextSac = t + .35 + Math.random() * 2.2;
+      const big = Math.random() < .15;
+      const talk = rv.mouth > .12;
+      rv.gazeTX = (Math.random() * 2 - 1) * (talk ? .3 : (big ? .95 : .45));
+      rv.gazeTY = (Math.random() * 2 - 1) * .2;
+      rv.sacT = t; rv.sacDur = .08 + Math.random() * .07;
+    }
+    const p = Math.min(1, (t - rv.sacT) / rv.sacDur);
+    const e = 1 - Math.pow(1 - p, 3);
+    rv.gazeX = rv.gazeTX * e + .05 * Math.sin(TAU * .31 * t + 1);
+    rv.gazeY = rv.gazeTY * e;
+  }
 
-    /* 1 · cabeça: a foto inteira re-desenhada com o transform,
-           mascarada por feather na região da cabeça (pivô no pescoço) */
+  /* piscada: distribuição natural + piscada dupla ocasional */
+  function driveBlink(t){
+    if (t > rv.nextBlink){
+      rv.blinkStart = t;
+      rv.blinkDur = .12 + Math.random() * .08;
+      const dbl = Math.random() < .15;
+      rv.nextBlink = t + (dbl ? .28 : 1.4 + Math.random() * 3.2) + (rv.mouth > .2 ? -.35 : 0);
+    }
+    const bp = (t - rv.blinkStart) / rv.blinkDur;
+    rv.blink = (bp >= 0 && bp <= 1) ? Math.sin(Math.PI * bp) : 0;
+  }
+
+  /* ═══ CAMADAS DE RENDER ═══ */
+
+  /* cabeça: sway sutil + respiração + micro-tremor + aceno de ênfase */
+  function drawHeadLayer(box, t){
+    const rot = .008 * Math.sin(TAU * .26 * t + .3)
+              + .004 * Math.sin(TAU * .57 * t + 1.2)
+              + .0018 * Math.sin(TAU * 1.9 * t + .7);
+    const htx = box.w * .007 * Math.sin(TAU * .15 * t + .9);
+    const hty = box.h * .0045 * Math.sin(TAU * .23 * t + .2) + rv.nod * box.h * .011;
+    const breathe = 1 + .0032 * Math.sin(TAU * .22 * t + .5);
     const rx = box.w * 1.0, ry = box.h * 1.05;
     const hw = Math.ceil(2 * rx), hh = Math.ceil(2 * ry);
-    const hx = box.cx - hw / 2, hy = box.cy - hh / 2;
+    const hx = Math.round(box.cx - hw / 2), hy = Math.round(box.cy - hh / 2);
     if (headCv.width !== hw || headCv.height !== hh){ headCv.width = hw; headCv.height = hh; }
     const hc = headCv.getContext('2d');
     hc.clearRect(0, 0, hw, hh);
     hc.save();
     hc.translate(-hx, -hy);
-    const pvx = box.cx, pvy = box.y + box.h * 1.18;
+    const pvx = box.cx, pvy = box.y + box.h * 1.18;         // pivô no pescoço
     hc.translate(pvx, pvy); hc.rotate(rot); hc.scale(breathe, breathe); hc.translate(-pvx, -pvy);
     hc.translate(htx, hty);
     hc.drawImage(photoCv, 0, 0, W, H);
@@ -2667,51 +2824,169 @@ const FaceForge = (() => {
     hc.drawImage(radial, 0, 0, 256, 256, 0, 0, hw, hh);
     hc.globalCompositeOperation = 'source-over';
     ctx.drawImage(headCv, hx, hy);
+  }
 
-    /* 2 · mandíbula desce conforme a abertura da boca */
-    const drop = Math.min(box.h * 0.16, (p.chin.y - p.mouth.y) * 0.45 * r.mouth);
-    if (r.mouth > 0.04){
-      const jw = box.w * 0.62;
-      const jh = (p.chin.y - p.mouth.y) + box.h * 0.12;
-      drawFeathered(p.mouth.x - jw / 2, p.mouth.y - box.h * 0.02, jw, jh,
-                    p.mouth.x, p.mouth.y, { ty: drop, mask: jawMask });
-      /* interior da boca (escurecimento com feather) */
-      if (r.mouth > 0.14){
-        const my = p.mouth.y + drop * 0.3;
-        const mw = p.mouthW * 0.40, mh = Math.max(1.5, drop * 0.55);
-        const g = ctx.createRadialGradient(p.mouth.x, my, 1, p.mouth.x, my, mw);
-        g.addColorStop(0, 'rgba(20,10,8,0.92)');
-        g.addColorStop(0.7, 'rgba(20,10,8,0.72)');
-        g.addColorStop(1, 'rgba(20,10,8,0)');
-        ctx.save();
-        ctx.translate(p.mouth.x, my);
-        ctx.scale(1, mh / Math.max(mw, 1));
-        ctx.translate(-p.mouth.x, -my);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.mouth.x, my, mw, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+  /* bochechas sobem no sorriso */
+  function drawCheeks(g, smile){
+    [[g.cheekL],[g.cheekR]].forEach(([c]) => {
+      const cw = g.box.w * .24, ch = g.box.h * .15;
+      warpBands(c.x - cw / 2, c.y - ch * .6, cw, ch,
+        cy => -smile * g.box.h * .014 * (1 - Math.min(1, Math.abs(cy - c.y) / (ch * .75))));
+    });
+  }
+
+  /* sobrancelhas: lift (com ênfase) + franzir interno (knit) */
+  function drawBrows(g, brow, knit){
+    const sides = [[g.browL, g.innerL, +1],[g.browR, g.innerR, -1]];
+    sides.forEach(([b, inner, sgn]) => {
+      const bw2 = g.box.w * .28, bh2 = g.box.h * .17;
+      if (Math.abs(brow) > .04){
+        const lift = -brow * g.box.h * .032;                // negativo = para cima
+        warpBands(b.x - bw2 / 2, b.y - bh2 * .55, bw2, bh2,
+          cy => lift * (1 - Math.min(1, Math.abs(cy - b.y) / (bh2 * .6))));
       }
-    }
+      if (knit > .05){
+        const iw = g.box.w * .16, ih = g.box.h * .11;
+        warpCols(inner.x - iw / 2, inner.y - ih * .5, iw, ih, cx => {
+          const f = 1 - Math.min(1, Math.abs(cx - inner.x) / (iw * .5));
+          return { dx: sgn * knit * g.box.w * .012 * f, dy: knit * g.box.h * .008 * f };
+        });
+      }
+    });
+  }
 
-    /* 3 · pálpebras: squash dos olhos durante a piscada */
-    if (r.blink > 0.02){
-      const eyeSc = 1 - r.blink * 0.88;
-      [p.eyeL, p.eyeR].forEach(e => {
-        const ew = e.w * 2.3, eh = e.h * 3.6;
-        drawFeathered(e.c.x - ew / 2, e.c.y - eh / 2, ew, eh, e.c.x, e.c.y, { sy: eyeSc });
-      });
-    }
+  /* mandíbula: perfil de rotação (lábio sup. quase parado → máx na
+     linha da boca → esvai no queixo) + interior com dentes */
+  function drawJaw(g, open, wide){
+    if (open <= .05) return;
+    const bw = g.box.w * .78;
+    const topY = g.upperLip.y - g.box.h * .015;
+    const botY = g.chin.y + g.box.h * .05;
+    const h = Math.max(6, botY - topY);
+    const drop = Math.min(g.box.h * .115, h * .38) * open;
+    const cx = g.mouth.x;
+    const prof = p => .16 + .84 * ss(0, .24, p) * (1 - .60 * ss(.70, 1, p));
+    warpBands(cx - bw / 2, topY, bw, h, cy => drop * prof((cy - topY) / h));
+    const dropAt = drop * prof((g.mouth.y - topY) / h);
+    drawMouthInterior(g, open, wide, dropAt);
+  }
 
-    /* 4 · sobrancelhas: micro-expressão lenta + reação à fala */
-    const lift = (brow - 0.5) * box.h * 0.012 + r.mouth * box.h * 0.006;
-    if (Math.abs(lift) > 0.3){
-      [p.browL, p.browR].forEach(b => {
-        const bw = box.w * 0.16, bh = box.h * 0.07;
-        drawFeathered(b.x - bw / 2, b.y - bh * 0.7, bw, bh, b.x, b.y, { ty: -lift });
-      });
+  function drawMouthInterior(g, open, wide, dropAt){
+    const mw = g.mouthW * (.52 + open * .34) * (1 + Math.max(0, wide) * .18 - Math.min(0, wide) * .22);
+    const mh = Math.max(1.2, dropAt * .74);
+    const cx = g.mouth.x, cy = g.mouth.y + dropAt * .40;
+    /* cavidade */
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, mh / Math.max(1, mw * .55));
+    const gr = ctx.createRadialGradient(0, 0, 1, 0, 0, mw * .55);
+    gr.addColorStop(0, 'rgba(26,13,11,.95)');
+    gr.addColorStop(.62, 'rgba(33,15,12,.80)');
+    gr.addColorStop(1, 'rgba(33,15,12,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(0, 0, mw * .55, 0, TAU); ctx.fill();
+    ctx.restore();
+    /* dentes (sugestão suave no topo da abertura) */
+    if (open > .22){
+      const tw = mw * .62;
+      ctx.save();
+      ctx.translate(cx, cy - mh * .52);
+      ctx.scale(1, .42);
+      const tg = ctx.createRadialGradient(0, 0, tw * .1, 0, 0, tw * .55);
+      tg.addColorStop(0, 'rgba(240,234,222,.5)');
+      tg.addColorStop(.55, 'rgba(240,234,222,.34)');
+      tg.addColorStop(1, 'rgba(240,234,222,0)');
+      ctx.fillStyle = tg;
+      ctx.beginPath(); ctx.arc(0, 0, tw * .55, 0, TAU); ctx.fill();
+      ctx.restore();
     }
+    /* sombra do lábio inferior */
+    ctx.save();
+    ctx.translate(cx, cy + mh * .78);
+    ctx.scale(1, .3);
+    const sg = ctx.createRadialGradient(0, 0, 1, 0, 0, mw * .5);
+    sg.addColorStop(0, 'rgba(60,30,24,.35)');
+    sg.addColorStop(1, 'rgba(60,30,24,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(0, 0, mw * .5, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /* cantos da boca: sorriso sobe/afasta; sons largos afastam;
+     sons redondos (wide<0) puxam para dentro (bico) */
+  function drawCorners(g, wide, smile){
+    if (Math.max(Math.abs(wide) * .6, Math.abs(smile)) < .06) return;
+    const ch = g.box.h * .17, cw = g.mouthW * .60;
+    [[g.cornerL, -1],[g.cornerR, +1]].forEach(([c, sgn]) => {
+      warpCols(c.x - cw * .5, c.y - ch * .55, cw, ch, cx => {
+        const f = Math.pow(1 - Math.min(1, Math.abs(cx - c.x) / (cw * .5)), 1.4);
+        const dx = sgn * g.mouthW * f *
+          (Math.max(0, wide) * .10 + Math.max(0, smile) * .12 + Math.min(0, wide) * .07);
+        const dy = -f * (Math.max(0, smile) * g.box.h * .030 + Math.max(0, wide) * g.box.h * .004);
+        return { dx, dy };
+      });
+    });
+  }
+
+  /* olhar: íris transladada com feather (sacadas) */
+  function drawGaze(g){
+    if (!g.irisL || !g.irisR) return;
+    if (Math.abs(rv.gazeX) < .02 && Math.abs(rv.gazeY) < .02) return;
+    [[g.irisL, g.eyeL],[g.irisR, g.eyeR]].forEach(([ir, e]) => {
+      const rw = e.w * .52, rh = e.h * 2.6;
+      drawFeathered(ir.x - rw / 2, ir.y - rh / 2, rw, rh, ir.x, ir.y,
+        { tx: rv.gazeX * e.w * .26, ty: rv.gazeY * e.h * 1.4 });
+    });
+  }
+
+  /* pálpebras: blink = pele da pálpebra ESTICA para baixo sobre o
+     olho (+ compressão leve); wide = arregalar; squint = subir inferior */
+  function drawLids(g, blink, squint, wide){
+    [[g.eyeL],[g.eyeR]].forEach(([e]) => {
+      const ew = e.w * 2.7, eh = e.h * 4.2;
+      const ex = e.c.x - ew / 2;
+      if (blink > .04){
+        const topY = e.c.y - eh * .52, hh = eh * .7;
+        const travel = e.h * 2.4;
+        warpBands(ex, topY, ew, hh, cy => blink * travel * ss(0, 1, (cy - topY) / hh));
+        drawFeathered(e.c.x - ew * .34, e.c.y - eh * .30, ew * .68, eh * .60,
+                      e.c.x, e.c.y, { sy: 1 - blink * .42 });
+      } else if (wide > .06){
+        const topY = e.c.y - eh * .55, hh = eh * .7;
+        warpBands(ex, topY, ew, hh, cy => -wide * e.h * 1.5 * ss(0, 1, (cy - topY) / hh));
+      }
+      const sq = squint + rv.emph * .12;
+      if (sq > .06){
+        const topY = e.c.y + e.h * .3, hh = eh * .55;
+        warpBands(ex, topY, ew, hh, cy => -Math.min(1, sq) * e.h * 1.5 * (1 - (cy - topY) / hh));
+      }
+    });
+  }
+
+  /* um frame do REVIVER */
+  function drawRevive(box){
+    if (!radial.width) buildRadial();
+    const g = faceGeom(box);
+    const t = (performance.now() - rv.t0) / 1000;
+    const dt = Math.min(.05, Math.max(0, t - rv.lastT));
+    rv.lastT = t;
+
+    driveMouth(t, dt);
+    driveEmotion(t, dt);
+    driveGaze(t);
+    driveBlink(t);
+
+    drawHeadLayer(box, t);
+
+    const smile = rv.cur.smile, squint = rv.cur.squint, knit = rv.cur.knit, wideE = rv.cur.wide;
+    const browAmt = rv.cur.brow + rv.emph * .38;
+
+    if (Math.abs(smile) > .05) drawCheeks(g, smile);
+    if (Math.abs(browAmt) > .04 || knit > .05) drawBrows(g, browAmt, knit);
+    drawJaw(g, rv.mouth, rv.width);
+    drawCorners(g, rv.width, smile);
+    drawGaze(g);
+    drawLids(g, rv.blink, squint, wideE);
   }
 
   /* ── efeitos (live e photo) ── */
@@ -2773,7 +3048,7 @@ const FaceForge = (() => {
       };
       fx.swap = true;
       btnSwap.classList.add('on');
-      setSt(revive.on ? 'foto animada' : 'enxerto gerado');
+      setSt(rv.on ? 'foto animada' : 'enxerto gerado');
       $ro.textContent = 'enxerto self-swap aplicado — escala ' + graft.s.toFixed(3) + ' · rotação ' +
         (graft.rot * 57.3).toFixed(1) + '° · offset (' + graft.dx.toFixed(0) + ', ' + graft.dy.toFixed(0) +
         ') px. As bordas de blending são o alvo do ELA do detector.';
@@ -2858,15 +3133,15 @@ const FaceForge = (() => {
     }
   }
 
-  /* ── loop principal (live OU photo) ── */
-  function loop(ts){
+  /* ── loop principal ── */
+  function loop(){
     if (!running) return;
     if (mode === 'photo' && !photoCv){ running = false; return; }
     const src = mode === 'photo' ? photoCv : video;
     ctx.drawImage(src, 0, 0, W, H);
     const box = faceBox();
     if (mode === 'photo'){
-      if (revive.on) drawRevive(box);
+      if (rv.on) drawRevive(box);
       if (fx.smooth) smoothFace(box, src);
       if (fx.swap && maskCv) pasteMaskPhoto(box);
       if (fx.glitch) glitch(box, src);
@@ -2877,7 +3152,6 @@ const FaceForge = (() => {
       if (fx.glitch) glitch(box, src);
     }
     hud(box);
-    lastTs = ts || 0;
     requestAnimationFrame(loop);
   }
 
@@ -2893,16 +3167,15 @@ const FaceForge = (() => {
 
   function clip(){
     if (rec) return;
-    /* se o driver por voz estiver ativo, o clipe sai COM a trilha —
-       um deepfake completo (vídeo + áudio) para o pipeline de vídeo */
-    const withAudio = revive.voice && revive.micStream && revive.micStream.getAudioTracks().length > 0;
+    /* driver de voz ativo → clipe COM a trilha (deepfake completo) */
+    const withAudio = rv.voice && rv.micStream && rv.micStream.getAudioTracks().length > 0;
     const mimes = withAudio
       ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
       : ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
     const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
     const s2 = cvs.captureStream(30);
     const streamRec = withAudio
-      ? new MediaStream([...s2.getVideoTracks(), ...revive.micStream.getAudioTracks()])
+      ? new MediaStream([...s2.getVideoTracks(), ...rv.micStream.getAudioTracks()])
       : s2;
     rec = new MediaRecorder(streamRec, mime ? { mimeType: mime } : undefined);
     const parts = [];
@@ -2916,7 +3189,7 @@ const FaceForge = (() => {
       rec = null;
       $('#ffClip').disabled = false;
       $('#ffClip').classList.remove('on');
-      setSt(revive.on ? (revive.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'photo' ? 'foto carregada' : 'câmera ativa'));
+      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'photo' ? 'foto carregada' : 'câmera ativa'));
     };
     rec.start();
     $('#ffClip').disabled = true;
@@ -2939,6 +3212,14 @@ const FaceForge = (() => {
     $photoIn.addEventListener('change', loadPhoto);
     $reviveBtn.addEventListener('click', toggleRevive);
     $voiceBtn.addEventListener('click', toggleVoiceDrive);
+
+    moodBtns.forEach(b => b.addEventListener('click', () => {
+      if (b.disabled) return;
+      moodBtns.forEach(c => c.classList.toggle('on', c === b));
+      rv.moodPreset = b.dataset.mood;
+      rv.nextMood = 0;                       // aplica já no próximo frame
+      Terminal.log('[FORGE::FACE] humor: ' + rv.moodPreset, 'plain');
+    }));
 
     fxBtns.forEach(b => b.addEventListener('click', () => {
       if (b.disabled) return;
@@ -3420,11 +3701,11 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.2');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.3');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial — webcam, foto still ou REVIVER', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial com expressões e olhar — webcam, foto ou REVIVER', 'plain');
     Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
     Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }
