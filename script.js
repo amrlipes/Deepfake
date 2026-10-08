@@ -1,23 +1,25 @@
 'use strict';
 /* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.3
-   Novidade v6.3 — REVIVER realista:
-   · motor de warping por faixas/colunas (máscaras cosseno elevado)
-   · mandíbula com perfil de rotação (não translação rígida)
-   · interior de boca: cavidade + dentes + sombra do lábio
-   · cantos dos lábios: largura por centroide espectral (voz) ou
-     sílaba (procedural); pucker em sons redondos
-   · pálpebra que ESTICA para piscar (não squash); arregalar
-   · sobrancelhas (levantar/franzir), bochechas, squint no sorriso
-   · olhar vivo: sacadas da íris (refineLandmarks) + deriva micro
-   · ênfase: transientes de voz → sobrancelha + aceno de cabeça
-   · controlador de humor: auto / neutro / sorriso / surpresa / sério
-   · fala procedural silábica (frases, envelopes, pausas)
+   script.js — SYNTH::DETECT v6.4
+   Novidades v6.4 — REVIVER realista + fim do arrasto do fundo:
+   · máscara oval da FACE aplicada a todos os warps (mandíbula,
+     sobrancelhas, pálpebras, bochechas, cantos) — nenhum pixel
+     fora do rosto se move, por construção
+   · máscara de CABEÇA (crânio+cabelo) na camada de sway — o fundo
+     fica parado; só a cabeça se move
+   · mandíbula por ROTAÇÃO em torno da articulação (côndilos, com
+     estiramento de pele amortecendo o queixo)
+   · molas sub-amortecidas p/ boca/largura (ataque rápido, leve
+     overshoot natural — sem "flutuação" de lerp)
+   · olhos lideram, cabeça segue o olhar com atraso (gaze-follow)
+   · flash de sobrancelha, sorriso assimétrico, pés-de-galinha,
+     sulcos nasolabiais, língua em aberturas grandes
+   · piscadas acopladas a sacadas grandes; imageSmoothing high
 
    Sumário:
      CONFIG/Util · PixelArt · Terminal · ForensicCore (detecção,
      DOM-free) · VideoLab · PixelLab · ForgeArtifacts · DSP da FORGE
-     · VoiceForge · FaceForge (live · photo · REVIVER) · App
+     · VoiceForge · FaceForge (live · photo · REVIVER v3) · App
 ═════════════════════════════════════════════════════════════════ */
 
 const CONFIG = {
@@ -468,7 +470,7 @@ const ForensicCore = (() => {
     if (dims) emit('dimensões (' + sofName + '): ' + dims.w + '×' + dims.h + ' px', 'ok');
     if (eoi < 0) emit('EOI não localizado — arquivo truncado ou estrutura anômala', 'err');
     else if (S.trailing > 0) emit(S.trailing + ' bytes de dados APÓS o EOI — possível payload anexado', 'err');
-    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dado anexado após o fim da imagem', 'ok');
+    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dados anexado após o fim da imagem', 'ok');
     if (desync) emit('dessincronização de marcadores a partir de ' + hex4(pos) + ' — estrutura não padrão', 'warn');
     S.scans = scans;
   }
@@ -520,7 +522,7 @@ const ForensicCore = (() => {
     if (idat.length) emit('IDAT ×' + idat.length + ' · ' + idat.reduce((a, c) => a + c.length, 0) + ' B de dados de imagem', 'plain');
     if (S.dims) emit('dimensões (IHDR): ' + S.dims.w + '×' + S.dims.h + ' px', 'ok');
     if (trailing > 0) emit(trailing + ' bytes de dados APÓS o IEND — possível payload anexado', 'err');
-    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dado anexado', 'ok');
+    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dados anexado', 'ok');
     if (corrupt) emit('declaração de tamanho de chunk inconsistente com o arquivo — estrutura corrompida', 'err');
     S.trailing = trailing; S.corrupt = corrupt;
   }
@@ -2290,14 +2292,15 @@ const VoiceForge = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   FACEFORGE — reencenação facial
+   FACEFORGE v3 (v6.4) — reencenação facial
    ─ live:  webcam + FaceMesh (marionete, swap, smooth, glitch)
    ─ photo: still (enxerto, smooth, glitch)
-   ─ photo + REVIVER v2 (realismo): motor de warping por faixas
-     (bandas/colunas com máscara cosseno), mandíbula com perfil de
-     rotação, pálpebra que estica, sobrancelhas/bochechas/squint,
-     olhar por sacadas da íris (refineLandmarks), ênfase por
-     transientes de voz, humor (auto/presets), fala silábica.
+   ─ photo + REVIVER v3: warping por faixas/colunas com MÁSCARA OVAL
+     DA FACE (nada fora do rosto se move), mandíbula por rotação em
+     torno da articulação (côndilos), molas sub-amortecidas, olhos
+     lideram / cabeça segue, flash de sobrancelha, sorriso
+     assimétrico, pés-de-galinha, sulcos nasolabiais, língua,
+     piscadas acopladas a sacadas.
 ════════════════════════════════════════════════════════════════ */
 const FaceForge = (() => {
   const TAU = Math.PI * 2;
@@ -2325,6 +2328,35 @@ const FaceForge = (() => {
   const scv = document.createElement('canvas');       // scratch dos warps
   let maskH = null, maskV = null;                      // máscaras cosseno (banda/coluna)
 
+  /* ── máscaras de face/cabeça — a chave do "sem arrasto" ── */
+  let faceMaskCv = null, headMaskCv = null, maskSig = '';
+  function buildMasks(g){
+    const b = g.box;
+    const sig = W + 'x' + H + ':' + [b.x, b.y, b.w, b.h].map(Math.round).join(',');
+    if (maskSig === sig) return;
+    maskSig = sig;
+    const mk = (cx, cy, rx, ry, core) => {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const m = c.getContext('2d');
+      m.save();
+      m.translate(cx, cy);
+      m.scale(rx, ry);
+      const gr = m.createRadialGradient(0, 0, 0, 0, 0, 1);
+      gr.addColorStop(0, 'rgba(255,255,255,1)');
+      gr.addColorStop(core, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      m.fillStyle = gr;
+      m.beginPath(); m.arc(0, 0, 1, 0, TAU); m.fill();
+      m.restore();
+      return c;
+    };
+    /* oval da FACE: bochecha-a-bochecha × testa-queixo (landmarks) */
+    faceMaskCv = mk(b.cx, b.y + b.h * 0.50, b.w * 0.60, b.h * 0.62, 0.78);
+    /* oval da CABEÇA: maior, cobre crânio/cabelo — só ela se move no sway */
+    headMaskCv = mk(b.cx, b.y + b.h * 0.44, b.w * 0.74, b.h * 0.80, 0.72);
+  }
+
   /* ── estado do REVIVER ── */
   const MOODS = {
     neutro:   { brow:.06,  smile:.10, squint:.02, knit:0,   wide:0 },
@@ -2334,12 +2366,14 @@ const FaceForge = (() => {
   };
   const rv = {
     on:false, voice:false, t0:0, lastT:0,
-    mouth:.04, width:0,
-    syls:null, si:0, sylsEnd:0, restUntil:0,
+    mouth:.04, width:0, velM:0, velW:0,
+    syls:null, si:0, hitSi:-1, sylsEnd:0, restUntil:0,
     blinkStart:-9, blinkDur:.15, nextBlink:1.2, blink:0,
     gazeX:0, gazeY:0, gazeTX:0, gazeTY:0, nextSac:.6, sacT:0, sacDur:.1,
-    moodPreset:'auto',
+    hfX:0, velH:0,
+    moodPreset:'auto', asym:0,
     cur:{ ...MOODS.neutro }, tgt:{ ...MOODS.neutro }, nextMood:2.5,
+    flashT:-9, nextFlash:4, flash:0,
     emph:0, nod:0, prevRms:0,
     analyser:null, ac:null, micStream:null, tbuf:null, fbuf:null
   };
@@ -2357,7 +2391,7 @@ const FaceForge = (() => {
     return { x: W * 0.30, y: H * 0.12, w: W * 0.40, h: H * 0.68, cx: W * 0.5, cy: H * 0.46 };
   }
 
-  /* geometria da face: landmarks (com íris) OU fallback proporcional */
+  /* geometria: landmarks (com íris) OU fallback proporcional */
   function faceGeom(box){
     if (lm){
       const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
@@ -2371,6 +2405,8 @@ const FaceForge = (() => {
         eyeL, eyeR,
         browL: P(105), browR: P(334), innerL: P(55), innerR: P(285),
         cheekL: P(205), cheekR: P(425),
+        hingeL: P(172), hingeR: P(397),
+        outL: P(33), outR: P(263),
         irisL: lm.length > 477 ? P(468) : null,
         irisR: lm.length > 477 ? P(473) : null
       };
@@ -2385,11 +2421,13 @@ const FaceForge = (() => {
       browL: { x: box.cx - w * .17, y: y + h * .32 }, browR: { x: box.cx + w * .17, y: y + h * .32 },
       innerL: { x: box.cx - w * .08, y: y + h * .33 }, innerR: { x: box.cx + w * .08, y: y + h * .33 },
       cheekL: { x: box.cx - w * .20, y: y + h * .55 }, cheekR: { x: box.cx + w * .20, y: y + h * .55 },
+      hingeL: { x: box.x, y: y + h * .60 }, hingeR: { x: box.x + box.w, y: y + h * .60 },
+      outL: { x: box.cx - w * .30, y: y + h * .40 }, outR: { x: box.cx + w * .30, y: y + h * .40 },
       irisL: null, irisR: null
     };
   }
 
-  /* ── máscaras e motor de warping ── */
+  /* ── máscaras base e motor de warping ── */
   function mkMask(vert){
     const c = document.createElement('canvas'); c.width = 64; c.height = 64;
     const g = c.getContext('2d');
@@ -2410,8 +2448,19 @@ const FaceForge = (() => {
     r.fillStyle = g; r.fillRect(0, 0, 256, 256);
   }
 
-  /* warp por faixas horizontais: fn(cy) → dy (deslocamento vertical)
-     faixas com sobreposição 50% e máscara cosseno → pesos somam ~1  */
+  /* prepara o scratch: tamanho + qualidade alta */
+  function scratch(w, h){
+    if (scv.width !== w || scv.height !== h){ scv.width = w; scv.height = h; }
+    const s2 = scv.getContext('2d');
+    s2.imageSmoothingEnabled = true;
+    s2.imageSmoothingQuality = 'high';
+    s2.globalCompositeOperation = 'source-over';
+    return s2;
+  }
+
+  /* warp por faixas horizontais: fn(cy) → dy.
+     Cada fatia recebe: máscara cosseno (fusão entre fatias) ×
+     MÁSCARA OVAL DA FACE (nada fora do rosto se move).        */
   function warpBands(x, y, w, h, fn){
     if (!maskH) maskH = mkMask(true);
     x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
@@ -2429,18 +2478,18 @@ const FaceForge = (() => {
       if (sy < 0){ bh += sy; sy = 0; }
       if (sy + bh > H) bh = H - sy;
       if (bh < 2) continue;
-      scv.width = w; scv.height = bh;
-      const s2 = scv.getContext('2d');
+      const s2 = scratch(w, bh);
       s2.clearRect(0, 0, w, bh);
       s2.drawImage(photoCv, x, sy, w, bh, 0, 0, w, bh);
       s2.globalCompositeOperation = 'destination-in';
       s2.drawImage(maskH, 0, 0, 64, 64, 0, 0, w, bh);
+      if (faceMaskCv) s2.drawImage(faceMaskCv, x, sy, w, bh, 0, 0, w, bh);
       s2.globalCompositeOperation = 'source-over';
       ctx.drawImage(scv, x, sy + dy);
     }
   }
 
-  /* warp por colunas: fn(cx) → {dx, dy} (cantos da boca etc.) */
+  /* warp por colunas: fn(cx) → {dx, dy} — mesma dupla máscara */
   function warpCols(x, y, w, h, fn){
     if (!maskV) maskV = mkMask(false);
     x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
@@ -2458,25 +2507,26 @@ const FaceForge = (() => {
       if (sx < 0){ bw += sx; sx = 0; }
       if (sx + bw > W) bw = W - sx;
       if (bw < 2) continue;
-      scv.width = bw; scv.height = h;
-      const s2 = scv.getContext('2d');
+      const s2 = scratch(bw, h);
       s2.clearRect(0, 0, bw, h);
       s2.drawImage(photoCv, sx, y, bw, h, 0, 0, bw, h);
       s2.globalCompositeOperation = 'destination-in';
       s2.drawImage(maskV, 0, 0, 64, 64, 0, 0, bw, h);
+      if (faceMaskCv) s2.drawImage(faceMaskCv, sx, y, bw, h, 0, 0, bw, h);
       s2.globalCompositeOperation = 'source-over';
       ctx.drawImage(scv, sx + d.dx, y + d.dy);
     }
   }
 
-  /* patch com feather radial, recortado da foto e transformado
-     em torno do pivô (cx,cy) — usado por íris/olho/enxerto */
+  /* patch com feather radial (íris, squash, enxerto) */
   function drawFeathered(sx, sy, sw, sh, cx, cy, o = {}){
     if (!radial.width) buildRadial();
     sw = Math.max(4, Math.round(sw)); sh = Math.max(4, Math.round(sh));
     sx = Math.round(sx); sy = Math.round(sy);
     mtmp.width = sw; mtmp.height = sh;
     const m = mtmp.getContext('2d');
+    m.imageSmoothingEnabled = true;
+    m.imageSmoothingQuality = 'high';
     m.clearRect(0, 0, sw, sh);
     m.drawImage(photoCv, sx, sy, sw, sh, 0, 0, sw, sh);
     m.globalCompositeOperation = 'destination-in';
@@ -2505,7 +2555,7 @@ const FaceForge = (() => {
 
   /* ── modo ao vivo (webcam) ── */
   async function start(){
-    if (mode === 'photo'){ photoCv = null; photoName = ''; }
+    if (mode === 'photo'){ photoCv = null; photoName = ''; maskSig = ''; }
     clearFx();
     rv.on = false;
     $reviveBtn.classList.remove('on');
@@ -2556,7 +2606,10 @@ const FaceForge = (() => {
       H = Math.max(2, Math.round(img.naturalHeight * sc));
       photoCv = document.createElement('canvas');
       photoCv.width = W; photoCv.height = H;
-      photoCv.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, W, H);
+      const pc = photoCv.getContext('2d', { willReadFrequently: true });
+      pc.imageSmoothingEnabled = true;
+      pc.imageSmoothingQuality = 'high';
+      pc.drawImage(img, 0, 0, W, H);
       URL.revokeObjectURL(url);
     } catch (e){
       $ro.textContent = 'falha ao decodificar a imagem — ' + e.message;
@@ -2564,6 +2617,7 @@ const FaceForge = (() => {
     }
     releaseCamera();
     clearFx();
+    maskSig = '';                                   // máscaras serão reconstruídas
     rv.on = false;
     $reviveBtn.classList.remove('on');
     if (rv.voice) stopVoiceDrive();
@@ -2579,8 +2633,8 @@ const FaceForge = (() => {
     ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
     setSt('foto carregada');
     $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
-      'Clique em <b>reviver</b>: a foto fala (mandíbula e lábios em warp), pisca, muda de humor e desvia o olhar. ' +
-      'Ative o driver de voz para a boca seguir a sua fala — e grave o clipe com a trilha.';
+      'Clique em <b>reviver</b>: a foto fala com mandíbula em rotação real, pisca, muda de humor e ' +
+      'desvia o olhar — e nada fora do rosto se move. Ative o driver de voz para a boca seguir a sua fala.';
     Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
     running = true;
     loop();
@@ -2595,16 +2649,16 @@ const FaceForge = (() => {
     if (rv.on){
       rv.t0 = performance.now();
       rv.lastT = 0;
-      rv.syls = null; rv.si = 0; rv.sylsEnd = 0; rv.restUntil = 0;
-      rv.mouth = .04; rv.width = 0;
+      rv.syls = null; rv.si = 0; rv.hitSi = -1; rv.sylsEnd = 0; rv.restUntil = 0;
+      rv.mouth = .04; rv.width = 0; rv.velM = 0; rv.velW = 0;
       rv.nextBlink = .8 + Math.random(); rv.nextSac = .4;
-      rv.nextMood = 1.5;
-      rv.emph = 0; rv.nod = 0;
+      rv.nextMood = 1.5; rv.nextFlash = 3 + Math.random() * 4;
+      rv.emph = 0; rv.nod = 0; rv.hfX = 0; rv.velH = 0;
       setSt(rv.voice ? 'foto animada (voz)' : 'foto animada');
-      $ro.innerHTML = 'reencenação ATIVA — warp por faixas: mandíbula com perfil de rotação, pálpebra que estica, ' +
-        'expressões pelo humor (auto ou chips), sacadas de olhar e ênfase na fala. ' +
+      $ro.innerHTML = 'reencenação ATIVA — warps confinados à máscara oval do rosto: mandíbula por rotação ' +
+        'na articulação, pálpebras que esticam, expressões assimétricas, olhar vivo (olhos lideram, cabeça segue). ' +
         'Grave o clipe e envie ao detector.';
-      Terminal.log('[FORGE::FACE] reencenação v2 ativada (warp por faixas · expressões · olhar · ênfase)', 'ok');
+      Terminal.log('[FORGE::FACE] reencenação v3 ativada (máscara oval · mandíbula por articulação · molas · gaze-follow)', 'ok');
     } else {
       setSt(rv.voice ? 'foto animada (voz)' : 'foto carregada');
       $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
@@ -2634,8 +2688,8 @@ const FaceForge = (() => {
     $voiceBtn.classList.add('on');
     if (!rv.on) toggleRevive();
     setSt('foto animada (voz)');
-    $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca segue a sua fala (RMS → abertura; ' +
-      'centroide espectral → largura; transientes → ênfase com sobrancelha e aceno). ' +
+    $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca segue a sua fala com molas naturais ' +
+      '(RMS → abertura; centroide espectral → largura; transientes → ênfase com sobrancelha e aceno). ' +
       'Grave o clipe: sai <b>com a sua trilha</b> para a bancada analisar vídeo + áudio de uma vez.';
     Terminal.log('[FORGE::FACE] driver por voz ativo — RMS/centroide do mic dirigem boca e ênfase (mecânica Wav2Lip)', 'ok');
   }
@@ -2691,16 +2745,16 @@ const FaceForge = (() => {
 
   /* ═══ DRIVERS ═══ */
 
-  /* boca: voz (RMS + centroide) OU fala procedural silábica; ênfase */
+  /* boca: alvo (voz OU sílaba) → MOLA sub-amortecida (sem lerp flutuante) */
   function driveMouth(t, dt){
+    let tgtM = .04, tgtW = 0;
     if (rv.voice && rv.analyser){
       if (!rv.tbuf){ rv.tbuf = new Uint8Array(rv.analyser.fftSize); rv.fbuf = new Uint8Array(rv.analyser.frequencyBinCount); }
       rv.analyser.getByteTimeDomainData(rv.tbuf);
       let s = 0;
       for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
       const rms = Math.sqrt(s / rv.tbuf.length);
-      const tgt = Math.max(.03, Math.min(1, (rms - .012) * 6.5));
-      rv.mouth += (tgt - rv.mouth) * (tgt > rv.mouth ? .55 : .16);   // ataque rápido, soltura lenta
+      tgtM = Math.max(.03, Math.min(1, (rms - .012) * 6.5));
       /* largura pela energia aguda (centroide): agudo = boca larga */
       rv.analyser.getByteFrequencyData(rv.fbuf);
       let num = 0, den = 0;
@@ -2708,7 +2762,7 @@ const FaceForge = (() => {
       for (let i = 2; i < bins; i++){ const f = i * nyq / bins; num += f * rv.fbuf[i]; den += rv.fbuf[i]; }
       const cent = den > 0 ? num / den : 1500;
       const wide = Math.max(-.6, Math.min(1, (cent - 1400) / 2300));
-      rv.width += ((rms > .02 ? wide : 0) - rv.width) * .22;
+      tgtW = rms > .02 ? wide : 0;
       /* ênfase por transiente de energia */
       const d = rms - rv.prevRms;
       rv.prevRms = rms * .65 + rv.prevRms * .35;
@@ -2720,7 +2774,7 @@ const FaceForge = (() => {
       /* fala procedural: frases de 2–6 sílabas com envelopes e pausas */
       if ((!rv.syls || t >= rv.sylsEnd) && t >= rv.restUntil){
         const n = 2 + Math.floor(Math.random() * 5);
-        rv.syls = []; rv.si = 0;
+        rv.syls = []; rv.si = 0; rv.hitSi = -1;
         let tt = t + .02;
         for (let i = 0; i < n; i++){
           const dur = .11 + Math.random() * .17, gap = .015 + Math.random() * .05;
@@ -2730,30 +2784,35 @@ const FaceForge = (() => {
         rv.sylsEnd = rv.syls[n - 1].t1;
         rv.restUntil = rv.sylsEnd + .35 + Math.random() * 1.15;
       }
-      if (rv.syls){
+      if (rv.syls && t <= rv.sylsEnd){
         const s = rv.syls[rv.si];
         if (s && t >= s.t0){
-          rv.emph = Math.min(1, rv.emph + s.amp * .5);
-          rv.nod = Math.max(rv.nod, s.amp * .7);
+          if (rv.hitSi !== rv.si){
+            rv.hitSi = rv.si;
+            rv.emph = Math.min(1, rv.emph + s.amp * .5);
+            rv.nod = Math.max(rv.nod, s.amp * .7);
+          }
           rv.si++;
         }
-        const cur = rv.syls[rv.si - 1];
-        if (cur && t <= cur.t1){
-          const p = (t - cur.t0) / (cur.t1 - cur.t0);
-          const env = Math.sin(Math.PI * Math.min(1, Math.max(0, p)));
-          rv.mouth += (Math.max(.04, cur.amp * env) - rv.mouth) * .5;
-          rv.width += (cur.wide * env - rv.width) * .38;
-        } else {
-          rv.mouth += (.04 - rv.mouth) * .16;
-          rv.width += (0 - rv.width) * .16;
+        const a = rv.syls[rv.si - 1];
+        if (a && t <= a.t1){
+          const p = Math.min(1, Math.max(0, (t - a.t0) / (a.t1 - a.t0)));
+          const env = Math.sin(Math.PI * p);
+          tgtM = Math.max(.04, a.amp * env);
+          tgtW = a.wide * env;
         }
       }
     }
+    /* molas: boca rápida (ω≈3.8 Hz, ζ≈0.55 — leve overshoot natural) */
+    let v = rv.velM + (tgtM - rv.mouth) * 560 * dt; v *= Math.exp(-26 * dt);
+    rv.velM = v; rv.mouth = Math.min(1, Math.max(.02, rv.mouth + v * dt));
+    v = rv.velW + (tgtW - rv.width) * 150 * dt; v *= Math.exp(-17 * dt);
+    rv.velW = v; rv.width += v * dt;
     rv.emph *= Math.exp(-dt * 5);
     rv.nod *= Math.exp(-dt * 5.5);
   }
 
-  /* humor: auto (deriva) ou preset — interpolação suave */
+  /* humor: auto (deriva) ou preset + assimetria + flash de sobrancelha */
   function driveEmotion(t, dt){
     if (t > rv.nextMood){
       rv.nextMood = t + 2.5 + Math.random() * 4;
@@ -2764,13 +2823,22 @@ const FaceForge = (() => {
         m.brow  *= .6 + Math.random() * .4;
         rv.tgt = m;
       } else rv.tgt = { ...MOODS[rv.moodPreset] };
+      rv.asym = (Math.random() * 2 - 1) * .28;      // sorriso assimétrico
     }
+    if (t > rv.nextFlash){
+      rv.flashT = t;
+      rv.nextFlash = t + 5 + Math.random() * 9;
+    }
+    const fp = (t - rv.flashT) / .28;
+    rv.flash = (fp >= 0 && fp <= 1) ? Math.sin(Math.PI * fp) * .5 : 0;
+
     const k = 1 - Math.exp(-dt * 1.9);
     for (const key in rv.tgt) rv.cur[key] = (rv.cur[key] || 0) + ((rv.tgt[key] || 0) - (rv.cur[key] || 0)) * k;
   }
 
-  /* olhar: sacadas rápidas + deriva micro; fala centraliza */
-  function driveGaze(t){
+  /* olhar: sacadas + deriva micro; OLHOS LIDERAM, cabeça segue (mola lenta);
+     piscada acoplada a sacadas grandes (como em humanos) */
+  function driveGaze(t, dt){
     if (t > rv.nextSac){
       rv.nextSac = t + .35 + Math.random() * 2.2;
       const big = Math.random() < .15;
@@ -2778,14 +2846,19 @@ const FaceForge = (() => {
       rv.gazeTX = (Math.random() * 2 - 1) * (talk ? .3 : (big ? .95 : .45));
       rv.gazeTY = (Math.random() * 2 - 1) * .2;
       rv.sacT = t; rv.sacDur = .08 + Math.random() * .07;
+      if (big && Math.random() < .3) rv.nextBlink = t;   // blink junto à sacada
     }
     const p = Math.min(1, (t - rv.sacT) / rv.sacDur);
     const e = 1 - Math.pow(1 - p, 3);
     rv.gazeX = rv.gazeTX * e + .05 * Math.sin(TAU * .31 * t + 1);
     rv.gazeY = rv.gazeTY * e;
+    /* cabeça segue o olhar com atraso (mola lenta) */
+    const want = Math.abs(rv.gazeTX) > .45 ? rv.gazeTX * .75 : 0;
+    let v = rv.velH + (want - rv.hfX) * 5 * dt; v *= Math.exp(-7 * dt);
+    rv.velH = v; rv.hfX += v * dt;
   }
 
-  /* piscada: distribuição natural + piscada dupla ocasional */
+  /* piscada: distribuição natural + dupla ocasional + antecipada na fala */
   function driveBlink(t){
     if (t > rv.nextBlink){
       rv.blinkStart = t;
@@ -2799,19 +2872,23 @@ const FaceForge = (() => {
 
   /* ═══ CAMADAS DE RENDER ═══ */
 
-  /* cabeça: sway sutil + respiração + micro-tremor + aceno de ênfase */
+  /* cabeça: sway + respiração + tremor + gaze-follow — mascarada pela
+     oval da CABEÇA: só o crânio/cabelo se move; o fundo fica parado */
   function drawHeadLayer(box, t){
-    const rot = .008 * Math.sin(TAU * .26 * t + .3)
-              + .004 * Math.sin(TAU * .57 * t + 1.2)
-              + .0018 * Math.sin(TAU * 1.9 * t + .7);
-    const htx = box.w * .007 * Math.sin(TAU * .15 * t + .9);
-    const hty = box.h * .0045 * Math.sin(TAU * .23 * t + .2) + rv.nod * box.h * .011;
+    const rot = .007 * Math.sin(TAU * .26 * t + .3)
+              + .0035 * Math.sin(TAU * .57 * t + 1.2)
+              + .0016 * Math.sin(TAU * 1.9 * t + .7)
+              + rv.hfX * .016;                              // cabeça segue o olhar
+    const htx = box.w * .006 * Math.sin(TAU * .15 * t + .9) + rv.hfX * box.w * .005;
+    const hty = box.h * .004 * Math.sin(TAU * .23 * t + .2) + rv.nod * box.h * .011;
     const breathe = 1 + .0032 * Math.sin(TAU * .22 * t + .5);
     const rx = box.w * 1.0, ry = box.h * 1.05;
     const hw = Math.ceil(2 * rx), hh = Math.ceil(2 * ry);
     const hx = Math.round(box.cx - hw / 2), hy = Math.round(box.cy - hh / 2);
     if (headCv.width !== hw || headCv.height !== hh){ headCv.width = hw; headCv.height = hh; }
     const hc = headCv.getContext('2d');
+    hc.imageSmoothingEnabled = true;
+    hc.imageSmoothingQuality = 'high';
     hc.clearRect(0, 0, hw, hh);
     hc.save();
     hc.translate(-hx, -hy);
@@ -2821,27 +2898,27 @@ const FaceForge = (() => {
     hc.drawImage(photoCv, 0, 0, W, H);
     hc.restore();
     hc.globalCompositeOperation = 'destination-in';
-    hc.drawImage(radial, 0, 0, 256, 256, 0, 0, hw, hh);
+    if (headMaskCv) hc.drawImage(headMaskCv, hx, hy, hw, hh, 0, 0, hw, hh);
     hc.globalCompositeOperation = 'source-over';
     ctx.drawImage(headCv, hx, hy);
   }
 
-  /* bochechas sobem no sorriso */
-  function drawCheeks(g, smile){
-    [[g.cheekL],[g.cheekR]].forEach(([c]) => {
+  /* bochechas sobem no sorriso (com assimetria) */
+  function drawCheeks(g, smile, asym){
+    [[g.cheekL, 1 + asym],[g.cheekR, 1 - asym]].forEach(([c, k]) => {
       const cw = g.box.w * .24, ch = g.box.h * .15;
       warpBands(c.x - cw / 2, c.y - ch * .6, cw, ch,
-        cy => -smile * g.box.h * .014 * (1 - Math.min(1, Math.abs(cy - c.y) / (ch * .75))));
+        cy => -smile * k * g.box.h * .014 * (1 - Math.min(1, Math.abs(cy - c.y) / (ch * .75))));
     });
   }
 
-  /* sobrancelhas: lift (com ênfase) + franzir interno (knit) */
+  /* sobrancelhas: lift (com ênfase/flash) + franzir interno (knit) */
   function drawBrows(g, brow, knit){
     const sides = [[g.browL, g.innerL, +1],[g.browR, g.innerR, -1]];
     sides.forEach(([b, inner, sgn]) => {
       const bw2 = g.box.w * .28, bh2 = g.box.h * .17;
       if (Math.abs(brow) > .04){
-        const lift = -brow * g.box.h * .032;                // negativo = para cima
+        const lift = -brow * g.box.h * .032;
         warpBands(b.x - bw2 / 2, b.y - bh2 * .55, bw2, bh2,
           cy => lift * (1 - Math.min(1, Math.abs(cy - b.y) / (bh2 * .6))));
       }
@@ -2855,19 +2932,62 @@ const FaceForge = (() => {
     });
   }
 
-  /* mandíbula: perfil de rotação (lábio sup. quase parado → máx na
-     linha da boca → esvai no queixo) + interior com dentes */
+  /* pés-de-galinha: cantos externos dos olhos sobem/afastam no sorriso */
+  function drawEyeCorners(g, smile, asym){
+    [[g.outL, -1, 1 + asym],[g.outR, +1, 1 - asym]].forEach(([c, sgn, k]) => {
+      const cw = g.box.w * .16, ch = g.box.h * .10;
+      warpCols(c.x - cw / 2, c.y - ch / 2, cw, ch, cx => {
+        const f = Math.pow(1 - Math.min(1, Math.abs(cx - c.x) / (cw * .5)), 1.5);
+        return { dx: sgn * smile * k * g.box.w * .010 * f,
+                 dy: -smile * k * g.box.h * .010 * f };
+      });
+    });
+  }
+
+  /* sulcos nasolabiais (sugestão sutil, cresce com o sorriso) */
+  function drawNasolabial(g, smile){
+    ctx.save();
+    ctx.globalAlpha = Math.min(.13, smile * .14);
+    ctx.strokeStyle = 'rgba(66,38,30,1)';
+    ctx.lineCap = 'round';
+    [[-1],[+1]].forEach(([sgn]) => {
+      const nx = g.mouth.x + sgn * g.mouthW * .30, ny = g.mouth.y - g.box.h * .105;
+      const mx = g.mouth.x + sgn * g.mouthW * .56, my = g.mouth.y - g.box.h * .012 - smile * g.box.h * .018;
+      ctx.lineWidth = Math.max(1, g.box.w * .014);
+      ctx.beginPath();
+      ctx.moveTo(nx, ny);
+      ctx.quadraticCurveTo(nx + sgn * g.box.w * .022, (ny + my) / 2, mx, my);
+      ctx.stroke();
+      ctx.globalAlpha *= .55;
+      ctx.lineWidth = Math.max(1.5, g.box.w * .022);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  /* mandíbula: ROTAÇÃO em torno da articulação (côndilos 172/397).
+     Lábio superior quase parado; máximo na linha da boca; a pele
+     estica e amortece em direção ao queixo. Falloff lateral vem da
+     máscara oval (lados do rosto quase não descem — como na anatomia). */
   function drawJaw(g, open, wide){
     if (open <= .05) return;
-    const bw = g.box.w * .78;
-    const topY = g.upperLip.y - g.box.h * .015;
-    const botY = g.chin.y + g.box.h * .05;
+    const b = g.box;
+    const hingeY = (g.hingeL.y + g.hingeR.y) / 2;
+    const dm = open * b.h * .082;                          // queda alvo na linha da boca
+    const theta = dm / Math.max(8, g.mouth.y - hingeY);    // ângulo de rotação
+    const bw = b.w * .80;
+    const topY = g.upperLip.y - b.h * .012;
+    const botY = g.chin.y + b.h * .045;
     const h = Math.max(6, botY - topY);
-    const drop = Math.min(g.box.h * .115, h * .38) * open;
     const cx = g.mouth.x;
-    const prof = p => .16 + .84 * ss(0, .24, p) * (1 - .60 * ss(.70, 1, p));
-    warpBands(cx - bw / 2, topY, bw, h, cy => drop * prof((cy - topY) / h));
-    const dropAt = drop * prof((g.mouth.y - topY) / h);
+    warpBands(cx - bw / 2, topY, bw, h, cy => {
+      const below = cy - hingeY;
+      if (below <= 0) return 0;
+      const lip = .22 + .78 * ss(topY, g.mouth.y + b.h * .02, cy);          // lábio sup. quase parado
+      const stretch = 1 - .34 * ss(g.mouth.y + b.h * .10, g.chin.y, cy);    // pele estica p/ o queixo
+      return theta * below * lip * stretch;
+    });
+    const dropAt = dm;                                     // queda na boca ≈ alvo
     drawMouthInterior(g, open, wide, dropAt);
   }
 
@@ -2886,7 +3006,7 @@ const FaceForge = (() => {
     ctx.fillStyle = gr;
     ctx.beginPath(); ctx.arc(0, 0, mw * .55, 0, TAU); ctx.fill();
     ctx.restore();
-    /* dentes (sugestão suave no topo da abertura) */
+    /* dentes (arco superior, quando a boca abre) */
     if (open > .22){
       const tw = mw * .62;
       ctx.save();
@@ -2898,6 +3018,18 @@ const FaceForge = (() => {
       tg.addColorStop(1, 'rgba(240,234,222,0)');
       ctx.fillStyle = tg;
       ctx.beginPath(); ctx.arc(0, 0, tw * .55, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    /* língua (aberturas grandes) */
+    if (open > .55){
+      ctx.save();
+      ctx.translate(cx, cy + mh * .55);
+      ctx.scale(1, .5);
+      const lg = ctx.createRadialGradient(0, 0, 1, 0, 0, mw * .40);
+      lg.addColorStop(0, 'rgba(96,38,38,.55)');
+      lg.addColorStop(1, 'rgba(96,38,38,0)');
+      ctx.fillStyle = lg;
+      ctx.beginPath(); ctx.arc(0, 0, mw * .40, 0, TAU); ctx.fill();
       ctx.restore();
     }
     /* sombra do lábio inferior */
@@ -2912,17 +3044,17 @@ const FaceForge = (() => {
     ctx.restore();
   }
 
-  /* cantos da boca: sorriso sobe/afasta; sons largos afastam;
-     sons redondos (wide<0) puxam para dentro (bico) */
-  function drawCorners(g, wide, smile){
+  /* cantos da boca: sorriso sobe/afasta (assimétrico); sons largos
+     afastam; sons redondos puxam para dentro (bico) */
+  function drawCorners(g, wide, smile, asym){
     if (Math.max(Math.abs(wide) * .6, Math.abs(smile)) < .06) return;
     const ch = g.box.h * .17, cw = g.mouthW * .60;
-    [[g.cornerL, -1],[g.cornerR, +1]].forEach(([c, sgn]) => {
+    [[g.cornerL, -1, 1 + asym],[g.cornerR, +1, 1 - asym]].forEach(([c, sgn, k]) => {
       warpCols(c.x - cw * .5, c.y - ch * .55, cw, ch, cx => {
         const f = Math.pow(1 - Math.min(1, Math.abs(cx - c.x) / (cw * .5)), 1.4);
-        const dx = sgn * g.mouthW * f *
+        const dx = sgn * k * g.mouthW * f *
           (Math.max(0, wide) * .10 + Math.max(0, smile) * .12 + Math.min(0, wide) * .07);
-        const dy = -f * (Math.max(0, smile) * g.box.h * .030 + Math.max(0, wide) * g.box.h * .004);
+        const dy = -f * k * (Math.max(0, smile) * g.box.h * .030 + Math.max(0, wide) * g.box.h * .004);
         return { dx, dy };
       });
     });
@@ -2939,8 +3071,8 @@ const FaceForge = (() => {
     });
   }
 
-  /* pálpebras: blink = pele da pálpebra ESTICA para baixo sobre o
-     olho (+ compressão leve); wide = arregalar; squint = subir inferior */
+  /* pálpebras: blink = pálpebra superior ESTICA para baixo sobre o
+     olho (+ leve squash); wide = arregalar; squint = subir a inferior */
   function drawLids(g, blink, squint, wide){
     [[g.eyeL],[g.eyeR]].forEach(([e]) => {
       const ew = e.w * 2.7, eh = e.h * 4.2;
@@ -2950,7 +3082,7 @@ const FaceForge = (() => {
         const travel = e.h * 2.4;
         warpBands(ex, topY, ew, hh, cy => blink * travel * ss(0, 1, (cy - topY) / hh));
         drawFeathered(e.c.x - ew * .34, e.c.y - eh * .30, ew * .68, eh * .60,
-                      e.c.x, e.c.y, { sy: 1 - blink * .42 });
+                      e.c.x, e.c.y, { sy: 1 - blink * .30 });
       } else if (wide > .06){
         const topY = e.c.y - eh * .55, hh = eh * .7;
         warpBands(ex, topY, ew, hh, cy => -wide * e.h * 1.5 * ss(0, 1, (cy - topY) / hh));
@@ -2967,24 +3099,27 @@ const FaceForge = (() => {
   function drawRevive(box){
     if (!radial.width) buildRadial();
     const g = faceGeom(box);
+    buildMasks(g);
     const t = (performance.now() - rv.t0) / 1000;
     const dt = Math.min(.05, Math.max(0, t - rv.lastT));
     rv.lastT = t;
 
     driveMouth(t, dt);
     driveEmotion(t, dt);
-    driveGaze(t);
+    driveGaze(t, dt);
     driveBlink(t);
 
     drawHeadLayer(box, t);
 
     const smile = rv.cur.smile, squint = rv.cur.squint, knit = rv.cur.knit, wideE = rv.cur.wide;
-    const browAmt = rv.cur.brow + rv.emph * .38;
+    const browAmt = rv.cur.brow + rv.emph * .34 + rv.flash * .45;
 
-    if (Math.abs(smile) > .05) drawCheeks(g, smile);
+    if (smile > .06) drawCheeks(g, smile, rv.asym);
     if (Math.abs(browAmt) > .04 || knit > .05) drawBrows(g, browAmt, knit);
+    if (smile > .10) drawEyeCorners(g, smile, rv.asym);
     drawJaw(g, rv.mouth, rv.width);
-    drawCorners(g, rv.width, smile);
+    drawCorners(g, rv.width, smile, rv.asym);
+    if (smile > .25) drawNasolabial(g, smile);
     drawGaze(g);
     drawLids(g, rv.blink, squint, wideE);
   }
@@ -3001,6 +3136,7 @@ const FaceForge = (() => {
     ctx.ellipse(box.cx, box.cy, fw / 2, fh / 2, 0, 0, Math.PI * 2);
     ctx.clip();
     ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(tiny, 0, 0, tiny.width, tiny.height, fx0, fy0, fw, fh);
     ctx.restore();
   }
@@ -3701,11 +3837,11 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.3');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.4');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial com expressões e olhar — webcam, foto ou REVIVER', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial confinada ao rosto — webcam, foto ou REVIVER', 'plain');
     Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
     Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }
