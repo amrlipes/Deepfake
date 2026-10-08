@@ -2,17 +2,19 @@
 <html lang="pt-BR">
 <head>
 <!-- ══════════════════════════════════════════════════════════════════
-     SYNTH::DETECT v6.1 — Bancada Forense + Bancada Ofensiva (FORGE)
+     SYNTH::DETECT v6.2 — Bancada Forense + Bancada Ofensiva (FORGE)
      IMAGEM + ÁUDIO + VÍDEO · 3 arquivos · zero build · zero config
 
      DETECÇÃO:  contêiner → metadados → C2PA/ELA/acústica → assinaturas
      OFENSIVA:  FORGE::VOICE (conversão de voz, própria voz, tempo real)
                 FORGE::FACE  (reencenação facial: câmera ao vivo OU foto
-                estática — self-swap, suavização, glitch)
+                estática — enxerto, suavização, glitch, e REVIVER: a
+                foto parada ganha movimento — fala procedural ou
+                dirigida pela própria voz do operador via mic)
      A FORGE opera APENAS sobre sinais do próprio operador (mic/câmera/
-     imagem própria). Não há compositação entre imagens diferentes e o
-     modo foto exige confirmação de consentimento. Os artefatos gerados
-     alimentam a bancada de detecção — o loop sintetizar → detectar.
+     imagem própria, com confirmação de consentimento). Não há
+     compositação entre imagens diferentes. Artefatos gerados alimentam
+     a bancada de detecção — o loop sintetizar → detectar.
 
      Estrutura obrigatória (mesma pasta):
        index.html · style.css · script.js
@@ -22,7 +24,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="Bancada forense e bancada ofensiva (mecânica de ataques) para mídia sintética: inspeção de imagem, áudio e vídeo + conversão de voz e reencenação facial sobre os próprios sinais do operador.">
+<meta name="description" content="Bancada forense e bancada ofensiva para mídia sintética: inspeção de imagem, áudio e vídeo + conversão de voz, reencenação facial e animação de fotos (deepfake educativo) sobre os próprios sinais do operador.">
 <title>SYNTH::DETECT — Forense & Mecânica Ofensiva de Mídia Sintética</title>
 
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="%230a0e0b"/><rect x="3" y="3" width="4" height="4" fill="%234ee08d"/><rect x="9" y="3" width="4" height="4" fill="%234ee08d" opacity=".3"/><rect x="3" y="9" width="4" height="4" fill="%234ee08d" opacity=".3"/><rect x="9" y="9" width="4" height="4" fill="%23ff5f56"/></svg>'>
@@ -71,8 +73,9 @@
     <p class="lead">
       Duas bancadas no mesmo projeto. A <strong>detecção</strong> dissecar arquivos byte a byte — estrutura,
       metadados, C2PA, acústica, quadros. A <strong>ofensiva</strong> opera ao vivo sobre os seus próprios
-      sinais: conversão de voz em tempo real e reencenação facial — por webcam ou sobre uma foto sua —
-      gerando o corpus sintético que fecha o loop <em>sintetizar → detectar</em>.
+      sinais: conversão de voz em tempo real e reencenação facial — por webcam ou <strong>sobre uma foto sua
+      parada, que ganha movimento</strong> — gerando o corpus sintético que fecha o loop
+      <em>sintetizar → detectar</em>.
     </p>
     <div class="hero-cta">
       <a href="#workbench" class="btn btn-primary">Bancada de detecção</a>
@@ -167,7 +170,7 @@
           <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
           <div class="term-head">
             <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span class="term-title">forensic-bench — synth-detect v6.1 · img+aud+vid+forge</span>
+            <span class="term-title">forensic-bench — synth-detect v6.2 · img+aud+vid+forge</span>
             <span class="term-badge">LOCAL</span>
           </div>
           <div class="term-body" id="termBody" role="log" aria-live="polite" aria-label="Log da análise em tempo real"></div>
@@ -189,15 +192,15 @@
       <span class="sec-num">//02</span>
       <div>
         <h2>Bancada ofensiva — mecânica dos ataques</h2>
-        <p>Operação ao vivo sobre os <strong>seus próprios sinais</strong> (mic, câmera e imagem própria): conversão de voz em tempo real e reencenação facial — por webcam ou sobre uma foto. Cada artefato gerado pode ser enviado direto à bancada de detecção: o loop sintetizar → detectar.</p>
+        <p>Operação ao vivo sobre os <strong>seus próprios sinais</strong> (mic, câmera e imagem própria): conversão de voz em tempo real e reencenação facial — por webcam ou sobre uma foto parada, que passa a falar e se mover. Cada artefato gerado pode ser enviado direto à bancada de detecção: o loop sintetizar → detectar.</p>
       </div>
       <span class="sec-rule" aria-hidden="true"></span>
     </div>
 
     <ol class="attack-steps" aria-label="Pipeline de um ataque de mídia sintética">
-      <li class="astep"><b>01 · COLETA</b><span>3 s de áudio público bastam para a impressão vocal; ~30 s de vídeo, para o rosto.</span></li>
+      <li class="astep"><b>01 · COLETA</b><span>3 s de áudio público bastam para a impressão vocal; ~30 s de vídeo, para o rosto. Uma foto frontal também basta.</span></li>
       <li class="astep"><b>02 · MODELO</b><span>O conversor é treinado/condicionado na amostra-alvo (RVC, XTTS, encoders de face).</span></li>
-      <li class="astep"><b>03 · REENCENAÇÃO</b><span>A voz-alvo fala o roteiro do atacante; landmarks dirigem a face-alvo.</span></li>
+      <li class="astep"><b>03 · REENCENAÇÃO</b><span>A voz-alvo fala o roteiro do atacante; landmarks dirigem a face-alvo — foto ou vídeo.</span></li>
       <li class="astep"><b>04 · BLEND + ENCODE</b><span>Composição e re-encode — a etapa onde a forense ataca (ELA, blending, codec).</span></li>
     </ol>
 
@@ -246,9 +249,9 @@
             <span>Confirmo que a imagem é <strong>minha</strong> ou que possuo
             <strong>consentimento expresso</strong> da pessoa retratada para este teste forense.</span>
           </label>
-          <p class="gate-note">O modo foto opera sobre <strong>uma única imagem</strong>: os efeitos geram os
-          artefatos forenses (bordas de blending, suavização, glitch) sobre a própria foto, sem compositação
-          entre imagens diferentes. A marionete fica desabilitada neste modo — exige driver ao vivo.</p>
+          <p class="gate-note">O modo foto opera sobre <strong>uma única imagem</strong>: reencenação
+          (reviver), enxerto, suavização e glitch geram artefatos sobre a <strong>própria foto</strong>,
+          sem compositação entre imagens diferentes — não há transferência de identidade.</p>
         </div>
 
         <div class="cam-stage" id="ffStage">
@@ -259,6 +262,12 @@
             ativar câmera (ao vivo)<br>ou carregar uma foto no modo still acima<br>tracking: 468 landmarks (MediaPipe · CDN · local)
           </div>
         </div>
+
+        <div class="fg-controls" id="ffReenact">
+          <button class="chip" id="ffRevive" type="button" disabled>▷ reviver (movimento)</button>
+          <button class="chip" id="ffVoice" type="button" disabled>dirigir pela voz (mic)</button>
+        </div>
+
         <div class="fg-controls" id="ffFx">
           <button class="chip" data-fx="puppet" type="button" disabled>marionete (ao vivo)</button>
           <button class="chip" data-fx="swap" type="button" disabled>swap / enxerto</button>
@@ -270,7 +279,7 @@
           <button class="chip" id="ffShot" type="button" disabled>capturar quadro</button>
           <button class="chip" id="ffClip" type="button" disabled>gravar clipe 5 s</button>
         </div>
-        <div class="fg-readout" id="ffReadout">dois modos: câmera ao vivo (reencenação por landmarks) ou foto estática (enxerto · suavização · glitch) — capture e envie à bancada de detecção</div>
+        <div class="fg-readout" id="ffReadout">três modos: câmera ao vivo · foto still (enxerto/glitch) · <b>reviver</b> — a foto parada ganha fala, piscadas e movimento (driver procedural ou pela sua voz). Capture e envie à bancada de detecção.</div>
       </div>
     </div>
 
@@ -299,7 +308,8 @@
       <strong>Escopo da bancada ofensiva</strong><br>
       A FORGE opera apenas sobre sinais capturados ou fornecidos localmente pelo próprio operador
       (mic/câmera/imagem própria, com confirmação de consentimento) e não processa amostras de
-      terceiros nem composita imagens diferentes. Os artefatos gerados são corpus de teste.
+      terceiros nem composita imagens diferentes. A reencenação usa warping clássico por landmarks —
+      a mecânica que LivePortrait/Wav2Lip automatizam com redes neurais. Os artefatos são corpus de teste.
     </div>
     <div class="footer-block">
       <strong>Privacidade</strong><br>

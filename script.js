@@ -1,22 +1,22 @@
 'use strict';
 /* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.1
+   script.js — SYNTH::DETECT v6.2
+   Novidade v6.2 — FORGE::FACE · REVIVER: a foto parada ganha movimento
+   (mandíbula/pálpebras/sway/sobrancelhas por warping de landmarks),
+   com driver procedural de fala OU dirigido pela voz do operador (mic),
+   e clipe WEBM gravado com a trilha de voz embutida.
+
    Sumário:
      ├── CONFIG / Util
-     ├── PixelArt      → placeholders dos .icon-pixel-*
-     ├── Terminal      → sink de logs (timestamps e progresso reais)
+     ├── PixelArt / Terminal
      ├── ForensicCore  → MOTOR de detecção (DOM-free)
-     │     imagem: walkers · parseTiff · inspectExif · inspectC2pa
-     │             inspectHeuristics · evaluate [+ ELA via io]
-     │     áudio:  walkers contêiner · fft · analyzeAcoustics · assinaturas
-     │     vídeo:  mp4Probe · aviWalk · mkvScan · runVideo · evaluateVideo
-     ├── VideoLab      → extração de quadros + ELA por quadro (DOM)
+     ├── VideoLab      → quadros + ELA por quadro (DOM)
      ├── PixelLab      → ELA em grade p/ imagens (DOM)
-     ├── ForgeArtifacts→ deck de artefatos (loop sintetizar→detectar)
-     ├── DSP da FORGE  → granularShift · tiltFilter · ringMod · encodeWav
-     ├── VoiceForge    → conversão de voz (própria voz; gravação + ao vivo)
-     ├── FaceForge     → reencenação facial (webcam ao vivo OU foto estática)
-     └── App           → orquestra a bancada de detecção + submitBlob()
+     ├── ForgeArtifacts→ deck de artefatos
+     ├── DSP da FORGE  → voz
+     ├── VoiceForge    → conversão de voz
+     ├── FaceForge     → live · foto · REVIVER (reencenação de foto)
+     └── App           → orquestração + submitBlob()
 ═════════════════════════════════════════════════════════════════ */
 
 const CONFIG = {
@@ -467,7 +467,7 @@ const ForensicCore = (() => {
     if (dims) emit('dimensões (' + sofName + '): ' + dims.w + '×' + dims.h + ' px', 'ok');
     if (eoi < 0) emit('EOI não localizado — arquivo truncado ou estrutura anômala', 'err');
     else if (S.trailing > 0) emit(S.trailing + ' bytes de dados APÓS o EOI — possível payload anexado', 'err');
-    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dado anexado após o fim da imagem', 'ok');
+    else emit('EOI @ ' + hex4(eoi) + ' — nenhum dados anexado após o fim da imagem', 'ok');
     if (desync) emit('dessincronização de marcadores a partir de ' + hex4(pos) + ' — estrutura não padrão', 'warn');
     S.scans = scans;
   }
@@ -519,7 +519,7 @@ const ForensicCore = (() => {
     if (idat.length) emit('IDAT ×' + idat.length + ' · ' + idat.reduce((a, c) => a + c.length, 0) + ' B de dados de imagem', 'plain');
     if (S.dims) emit('dimensões (IHDR): ' + S.dims.w + '×' + S.dims.h + ' px', 'ok');
     if (trailing > 0) emit(trailing + ' bytes de dados APÓS o IEND — possível payload anexado', 'err');
-    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dado anexado', 'ok');
+    else if (!corrupt) emit('IEND no fim exato do arquivo — nenhum dados anexado', 'ok');
     if (corrupt) emit('declaração de tamanho de chunk inconsistente com o arquivo — estrutura corrompida', 'err');
     S.trailing = trailing; S.corrupt = corrupt;
   }
@@ -808,7 +808,6 @@ const ForensicCore = (() => {
     R.c2pa = inspectC2pa(dv, R.structure, latin1.text, emit);
     onStage(2, R.c2pa.found ? 'ok' : 'warn');
     onStage(3, 'run');
-    /* ELA em grade — a análise de pixel roda na camada de UI (io.elaGrid) */
     if (io.elaImg && io.elaGrid){
       try {
         R.elaGrid = await io.elaGrid(io.elaImg);
@@ -876,7 +875,7 @@ const ForensicCore = (() => {
     emit('chunks: ' + ids.slice(0, 18).join(' · ') + (ids.length > 18 ? ' · …' : ''), 'plain');
     S.trailing = pos < len ? len - pos : 0;
     if (S.trailing > 8) emit(S.trailing + ' bytes após o último chunk — possível payload anexado', 'err');
-    else emit('fim do contêiner alinhado — nenhum dado anexado', 'ok');
+    else emit('fim do contêiner alinhado — nenhum dados anexado', 'ok');
   }
 
   function decodeId3Bytes(u8, enc){
@@ -2290,13 +2289,13 @@ const VoiceForge = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   FACEFORGE — reencenação facial (câmera ao vivo OU foto estática)
-   ─ live:  webcam + FaceMesh 468 landmarks — marionete, swap de
-            máscara, hipersuavização, glitch
-   ─ photo: UMA imagem do operador — enxerto self-swap com micro-
-            desalinhamento (escala/rotação/offset) + feather radial,
-            suavização e glitch. Sem compositação entre imagens:
-            por design, não há transferência de identidade.
+   FACEFORGE — reencenação facial
+   ─ live:  webcam + FaceMesh 468 landmarks (marionete, swap, smooth, glitch)
+   ─ photo: still (enxerto, smooth, glitch)
+   ─ photo + REVIVER: a foto parada ganha movimento — warping por
+     landmarks: mandíbula/pálpebras/sway/sobrancelhas dirigidos por
+     driver procedural de fala OU pela voz do operador (RMS do mic).
+     Clipes podem ser gravados COM a trilha de voz (deepfake completo).
 ════════════════════════════════════════════════════════════════ */
 const FaceForge = (() => {
   const video = $('#ffVideo'), cvs = $('#ffCanvas'), empty = $('#ffEmpty');
@@ -2305,16 +2304,25 @@ const FaceForge = (() => {
   const btnPuppet = $('#ffFx [data-fx="puppet"]');
   const btnSwap   = $('#ffFx [data-fx="swap"]');
   const $photoBtn = $('#ffPhotoBtn'), $photoIn = $('#ffPhotoInput'), $consent = $('#ffConsent');
+  const $reviveBtn = $('#ffRevive'), $voiceBtn = $('#ffVoice');
   const ctx = cvs.getContext('2d', { willReadFrequently: true });
   const fx = { puppet:false, swap:false, smooth:false, glitch:false };
   let stream = null, running = false, lm = null, fm = null, fmState = 'idle';
   let maskCv = null, rec = null, W = 0, H = 0, seq = 0;
-  let mode = 'live';                                    // 'live' | 'photo'
+  let mode = 'live';
   let photoCv = null, photoName = '';
-  let graft = { dx: 0, dy: 0, s: 1.05, rot: 0.03 };     // desalinhamento do enxerto
+  let graft = { dx: 0, dy: 0, s: 1.05, rot: 0.03 };
+  let lastTs = 0;
   const tiny = document.createElement('canvas');
   const mtmp = document.createElement('canvas');
+  const headCv = document.createElement('canvas');
   const radial = document.createElement('canvas');
+  const jawMask = document.createElement('canvas');
+
+  /* — estado do REVIVER (reencenação da foto) — */
+  const revive = { on:false, voice:false, t0:0, mouth:0.05, mouthTarget:0.05,
+                   speaking:false, nextSwitch:0.2, blinkStart:-9, blinkDur:0.16, nextBlink:1.5,
+                   analyser:null, ac:null, micStream:null, tbuf:null };
 
   const P = i => { const p = lm[i]; return { x: p.x * W, y: p.y * H }; };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -2329,6 +2337,77 @@ const FaceForge = (() => {
     return { x: W * 0.30, y: H * 0.12, w: W * 0.40, h: H * 0.68, cx: W * 0.5, cy: H * 0.46 };
   }
 
+  /* pontos-chave da face (landmarks reais OU fallback por proporção) */
+  function pts(box){
+    if (lm){
+      const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const d = dist;
+      const cOf = arr => ({ x: arr.reduce((a, p) => a + p.x, 0) / arr.length,
+                            y: arr.reduce((a, p) => a + p.y, 0) / arr.length });
+      return {
+        mouth: mid(P(13), P(14)),
+        mouthW: d(P(61), P(291)),
+        chin: P(152),
+        eyeL: { c: cOf([P(33), P(133), P(159), P(145)]), w: d(P(33), P(133)) / 2, h: d(P(159), P(145)) / 2 },
+        eyeR: { c: cOf([P(362), P(263), P(386), P(374)]), w: d(P(362), P(263)) / 2, h: d(P(386), P(374)) / 2 },
+        browL: P(105), browR: P(334)
+      };
+    }
+    const x = box.x, y = box.y, w = box.w, h = box.h;
+    return {
+      mouth: { x: box.cx, y: y + h * 0.70 },
+      mouthW: w * 0.36,
+      chin: { x: box.cx, y: y + h * 0.97 },
+      eyeL: { c: { x: box.cx - w * 0.16, y: y + h * 0.40 }, w: w * 0.09, h: w * 0.032 },
+      eyeR: { c: { x: box.cx + w * 0.16, y: y + h * 0.40 }, w: w * 0.09, h: w * 0.032 },
+      browL: { x: box.cx - w * 0.17, y: y + h * 0.32 },
+      browR: { x: box.cx + w * 0.17, y: y + h * 0.32 }
+    };
+  }
+
+  function buildRadial(){
+    radial.width = radial.height = 256;
+    const r = radial.getContext('2d');
+    const g = r.createRadialGradient(128, 128, 40, 128, 128, 128);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(.75, 'rgba(255,255,255,.96)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    r.fillStyle = g; r.fillRect(0, 0, 256, 256);
+  }
+  function buildJawMask(){
+    jawMask.width = 256; jawMask.height = 256;
+    const m = jawMask.getContext('2d');
+    const g = m.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.18, 'rgba(255,255,255,0)');
+    g.addColorStop(0.36, 'rgba(255,255,255,1)');
+    g.addColorStop(0.86, 'rgba(255,255,255,1)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    m.fillStyle = g; m.fillRect(0, 0, 256, 256);
+  }
+
+  /* patch com feather (radial OU máscara própria) recortado da foto,
+     redesenhado com translate/scale/rotate em torno do pivô (cx,cy) */
+  function drawFeathered(sx, sy, sw, sh, cx, cy, o = {}){
+    if (!radial.width) buildRadial();
+    sw = Math.max(4, Math.round(sw)); sh = Math.max(4, Math.round(sh));
+    sx = Math.round(sx); sy = Math.round(sy);
+    mtmp.width = sw; mtmp.height = sh;
+    const m = mtmp.getContext('2d');
+    m.clearRect(0, 0, sw, sh);
+    m.drawImage(photoCv, sx, sy, sw, sh, 0, 0, sw, sh);
+    m.globalCompositeOperation = 'destination-in';
+    m.drawImage(o.mask || radial, 0, 0, 256, 256, 0, 0, sw, sh);
+    m.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.translate(cx + (o.tx || 0), cy + (o.ty || 0));
+    if (o.rot) ctx.rotate(o.rot);
+    if (o.sx !== undefined || o.sy !== undefined)
+      ctx.scale(o.sx === undefined ? 1 : o.sx, o.sy === undefined ? 1 : o.sy);
+    ctx.drawImage(mtmp, sx - cx, sy - cy);
+    ctx.restore();
+  }
+
   function clearFx(){
     fx.puppet = fx.swap = fx.smooth = fx.glitch = false;
     maskCv = null;
@@ -2341,10 +2420,13 @@ const FaceForge = (() => {
     lm = null;
   }
 
-  /* — modo ao vivo (webcam) — */
+  /* ── modo ao vivo (webcam) ── */
   async function start(){
     if (mode === 'photo'){ photoCv = null; photoName = ''; }
     clearFx();
+    revive.on = false;
+    $reviveBtn.classList.remove('on');
+    if (revive.voice) stopVoiceDrive();
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 } }, audio: false });
     } catch (e){
@@ -2363,6 +2445,8 @@ const FaceForge = (() => {
     $('#ffStart').disabled = true;
     fxBtns.forEach(b => b.disabled = false);
     btnPuppet.disabled = fmState !== 'on';
+    $reviveBtn.disabled = true;
+    $voiceBtn.disabled = true;
     ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
     setSt('câmera ativa');
     $ro.textContent = 'câmera ativa — ative efeitos e combine-os. O quadro abaixo é o pipeline ao vivo.';
@@ -2371,7 +2455,7 @@ const FaceForge = (() => {
     loadMesh();
   }
 
-  /* — modo foto (imagem estática) — */
+  /* ── modo foto (still) ── */
   async function loadPhoto(){
     const f = $photoIn.files && $photoIn.files[0];
     $photoIn.value = '';
@@ -2396,23 +2480,90 @@ const FaceForge = (() => {
     }
     releaseCamera();
     clearFx();
+    revive.on = false;
+    $reviveBtn.classList.remove('on');
+    if (revive.voice) stopVoiceDrive();
     photoName = f.name;
     mode = 'photo';
     empty.hidden = true;
     $('#ffStart').disabled = false;
     fxBtns.forEach(b => b.disabled = false);
     btnPuppet.disabled = true;
+    $reviveBtn.disabled = false;
+    $voiceBtn.disabled = false;
     ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
     setSt('foto carregada');
     $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
-      'Congele o enxerto (self-swap com micro-desalinhamento), combine com suavização/glitch e capture o quadro ou um clipe.';
+      'Clique em <b>reviver</b> para a foto ganhar movimento (fala, piscadas, sway) — ou dirija a boca pela sua voz. ' +
+      'O enxerto, a suavização e o glitch continuam disponíveis.';
     Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
     running = true;
+    lastTs = 0;
     loop();
     loadMesh();
   }
 
-  /* — tracking (FaceMesh via CDN; degrada p/ fallback central) — */
+  /* ── REVIVER: liga/desliga a reencenação da foto ── */
+  function toggleRevive(){
+    if (mode !== 'photo' || !photoCv) return;
+    revive.on = !revive.on;
+    $reviveBtn.classList.toggle('on', revive.on);
+    if (revive.on){
+      revive.t0 = performance.now();
+      revive.nextSwitch = 0.2;
+      revive.nextBlink = 1 + Math.random() * 2;
+      revive.blinkStart = -9;
+      revive.mouth = 0.05;
+      setSt('foto animada');
+      $ro.innerHTML = 'reencenação ATIVA — a foto fala (driver procedural), pisca e balança: ' +
+        'warping por landmarks, a mecânica por trás de LivePortrait / Deep Nostalgia. ' +
+        'Grave o clipe e envie ao detector.';
+      Terminal.log('[FORGE::FACE] reencenação ativada (driver procedural: fala, piscadas, sway, respiração)', 'ok');
+    } else {
+      setSt(revive.voice ? 'foto animada (voz)' : 'foto carregada');
+      $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
+      Terminal.log('[FORGE::FACE] reencenação pausada', 'plain');
+    }
+  }
+
+  /* ── REVIVER: driver pela voz do operador (mic → RMS → boca) ── */
+  async function toggleVoiceDrive(){
+    if (revive.voice){ stopVoiceDrive(); return; }
+    if (mode !== 'photo' || !photoCv) return;
+    try {
+      revive.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
+      });
+    } catch (e){
+      $ro.textContent = 'microfone negado — ' + e.name + ' (o driver procedural continua disponível)';
+      return;
+    }
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    revive.ac = new Ctx();
+    const src = revive.ac.createMediaStreamSource(revive.micStream);
+    revive.analyser = revive.ac.createAnalyser();
+    revive.analyser.fftSize = 512;
+    src.connect(revive.analyser);
+    revive.voice = true;
+    $voiceBtn.classList.add('on');
+    if (!revive.on) toggleRevive();
+    setSt('foto animada (voz)');
+    $ro.innerHTML = 'driver por VOZ ativo — <b>fale no microfone</b> e a boca da foto segue a sua voz ' +
+      '(envelope de energia — a mecânica do Wav2Lip). Grave o clipe: ele sai <b>com a sua trilha</b> ' +
+      'para a bancada analisar vídeo + áudio de uma vez.';
+    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS do mic dirige a abertura labial da foto (mecânica Wav2Lip)', 'ok');
+  }
+  function stopVoiceDrive(){
+    revive.voice = false;
+    revive.analyser = null;
+    if (revive.micStream){ revive.micStream.getTracks().forEach(t => t.stop()); revive.micStream = null; }
+    if (revive.ac){ try { revive.ac.close(); } catch {} revive.ac = null; }
+    $voiceBtn.classList.remove('on');
+    if (revive.on) setSt('foto animada');
+    Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain');
+  }
+
+  /* ── tracking (FaceMesh via CDN; degrada p/ fallback por proporção) ── */
   async function meshOnce(){
     try { await fm.send({ image: mode === 'photo' ? photoCv : video }); } catch {}
   }
@@ -2434,14 +2585,14 @@ const FaceForge = (() => {
       fm.setOptions({ maxNumFaces: 1, refineLandmarks: false, minDetectionConfidence: .5, minTrackingConfidence: .5 });
       fm.onResults(r => { lm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; });
       fmState = 'on';
-      setSt('tracking ativo (468 pts)');
+      setSt(revive.on ? (revive.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'live' ? 'tracking ativo (468 pts)' : 'foto carregada'));
       if (mode === 'live') btnPuppet.disabled = false;
       meshLoop();
     } catch (e){
       fmState = 'fail';
       setSt('tracking indisponível');
       btnPuppet.disabled = true;
-      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — efeitos operam sobre a região central estimada; marionete desabilitada.';
+      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — a reencenação usa proporções estimadas da face; marionete desabilitada.';
     }
   }
   async function meshLoop(){
@@ -2452,7 +2603,118 @@ const FaceForge = (() => {
     }
   }
 
-  /* — efeitos (src = vídeo OU foto) — */
+  /* ── REVIVER: um frame da animação ── */
+  function drawRevive(box){
+    if (!radial.width) buildRadial();
+    if (!jawMask.width) buildJawMask();
+    const r = revive, p = pts(box);
+    const t = (performance.now() - r.t0) / 1000;
+
+    /* driver da boca: voz (RMS) OU fala procedural */
+    if (r.voice && r.analyser){
+      if (!r.tbuf) r.tbuf = new Uint8Array(r.analyser.fftSize);
+      r.analyser.getByteTimeDomainData(r.tbuf);
+      let s = 0;
+      for (let i = 0; i < r.tbuf.length; i++){ const v = (r.tbuf[i] - 128) / 128; s += v * v; }
+      const rms = Math.sqrt(s / r.tbuf.length);
+      r.mouthTarget = Math.max(0.04, Math.min(1, (rms - 0.015) * 7));
+    } else {
+      if (t > r.nextSwitch){
+        r.speaking = !r.speaking;
+        r.nextSwitch = t + (r.speaking ? 0.5 + Math.random() * 1.4 : 0.3 + Math.random() * 1.0);
+      }
+      if (r.speaking){
+        const a = Math.abs(Math.sin(2 * Math.PI * 4.6 * t));
+        const b = Math.abs(Math.sin(2 * Math.PI * 7.1 * t + 1.7));
+        const c = Math.abs(Math.sin(2 * Math.PI * 2.8 * t + 0.5));
+        r.mouthTarget = Math.min(1, 0.10 + (0.5 * a + 0.32 * b + 0.18 * c) * 1.25);
+      } else r.mouthTarget = 0.05;
+    }
+    r.mouth += (r.mouthTarget - r.mouth) * 0.35;
+
+    /* piscada (com piscada dupla ocasional) */
+    if (t > r.nextBlink){
+      r.blinkStart = t;
+      r.blinkDur = 0.13 + Math.random() * 0.07;
+      r.nextBlink = t + (Math.random() < 0.12 ? 0.28 : 1.7 + Math.random() * 3.6);
+    }
+    const bp = (t - r.blinkStart) / r.blinkDur;
+    r.blink = (bp >= 0 && bp <= 1) ? Math.sin(Math.PI * bp) : 0;
+
+    /* sway de cabeça + respiração + sobrancelha */
+    const rot = 0.015 * Math.sin(2 * Math.PI * 0.29 * t + 0.3) + 0.007 * Math.sin(2 * Math.PI * 0.73 * t + 1.1);
+    const htx = box.w * 0.008 * Math.sin(2 * Math.PI * 0.19 * t + 0.7);
+    const hty = box.h * 0.005 * Math.sin(2 * Math.PI * 0.41 * t + 2.0);
+    const breathe = 1 + 0.004 * Math.sin(2 * Math.PI * 0.21 * t);
+    const brow = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.11 * t + 0.9);
+
+    /* 1 · cabeça: a foto inteira re-desenhada com o transform,
+           mascarada por feather na região da cabeça (pivô no pescoço) */
+    const rx = box.w * 1.0, ry = box.h * 1.05;
+    const hw = Math.ceil(2 * rx), hh = Math.ceil(2 * ry);
+    const hx = box.cx - hw / 2, hy = box.cy - hh / 2;
+    if (headCv.width !== hw || headCv.height !== hh){ headCv.width = hw; headCv.height = hh; }
+    const hc = headCv.getContext('2d');
+    hc.clearRect(0, 0, hw, hh);
+    hc.save();
+    hc.translate(-hx, -hy);
+    const pvx = box.cx, pvy = box.y + box.h * 1.18;
+    hc.translate(pvx, pvy); hc.rotate(rot); hc.scale(breathe, breathe); hc.translate(-pvx, -pvy);
+    hc.translate(htx, hty);
+    hc.drawImage(photoCv, 0, 0, W, H);
+    hc.restore();
+    hc.globalCompositeOperation = 'destination-in';
+    hc.drawImage(radial, 0, 0, 256, 256, 0, 0, hw, hh);
+    hc.globalCompositeOperation = 'source-over';
+    ctx.drawImage(headCv, hx, hy);
+
+    /* 2 · mandíbula desce conforme a abertura da boca */
+    const drop = Math.min(box.h * 0.16, (p.chin.y - p.mouth.y) * 0.45 * r.mouth);
+    if (r.mouth > 0.04){
+      const jw = box.w * 0.62;
+      const jh = (p.chin.y - p.mouth.y) + box.h * 0.12;
+      drawFeathered(p.mouth.x - jw / 2, p.mouth.y - box.h * 0.02, jw, jh,
+                    p.mouth.x, p.mouth.y, { ty: drop, mask: jawMask });
+      /* interior da boca (escurecimento com feather) */
+      if (r.mouth > 0.14){
+        const my = p.mouth.y + drop * 0.3;
+        const mw = p.mouthW * 0.40, mh = Math.max(1.5, drop * 0.55);
+        const g = ctx.createRadialGradient(p.mouth.x, my, 1, p.mouth.x, my, mw);
+        g.addColorStop(0, 'rgba(20,10,8,0.92)');
+        g.addColorStop(0.7, 'rgba(20,10,8,0.72)');
+        g.addColorStop(1, 'rgba(20,10,8,0)');
+        ctx.save();
+        ctx.translate(p.mouth.x, my);
+        ctx.scale(1, mh / Math.max(mw, 1));
+        ctx.translate(-p.mouth.x, -my);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.mouth.x, my, mw, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    /* 3 · pálpebras: squash dos olhos durante a piscada */
+    if (r.blink > 0.02){
+      const eyeSc = 1 - r.blink * 0.88;
+      [p.eyeL, p.eyeR].forEach(e => {
+        const ew = e.w * 2.3, eh = e.h * 3.6;
+        drawFeathered(e.c.x - ew / 2, e.c.y - eh / 2, ew, eh, e.c.x, e.c.y, { sy: eyeSc });
+      });
+    }
+
+    /* 4 · sobrancelhas: micro-expressão lenta + reação à fala */
+    const lift = (brow - 0.5) * box.h * 0.012 + r.mouth * box.h * 0.006;
+    if (Math.abs(lift) > 0.3){
+      [p.browL, p.browR].forEach(b => {
+        const bw = box.w * 0.16, bh = box.h * 0.07;
+        drawFeathered(b.x - bw / 2, b.y - bh * 0.7, bw, bh, b.x, b.y, { ty: -lift });
+      });
+    }
+  }
+
+  /* ── efeitos (live e photo) ── */
   function smoothFace(box, src){
     const fw = box.w * 1.18, fh = box.h * 1.18;
     const fx0 = box.cx - fw / 2, fy0 = box.cy - fh / 2;
@@ -2494,16 +2756,6 @@ const FaceForge = (() => {
     });
   }
 
-  function buildRadial(){
-    radial.width = radial.height = 256;
-    const r = radial.getContext('2d');
-    const g = r.createRadialGradient(128, 128, 40, 128, 128, 128);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(.75, 'rgba(255,255,255,.96)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    r.fillStyle = g; r.fillRect(0, 0, 256, 256);
-  }
-
   function freezeMask(){
     if (mode === 'photo'){
       if (!photoCv) return;
@@ -2521,10 +2773,10 @@ const FaceForge = (() => {
       };
       fx.swap = true;
       btnSwap.classList.add('on');
-      setSt('enxerto gerado');
+      setSt(revive.on ? 'foto animada' : 'enxerto gerado');
       $ro.textContent = 'enxerto self-swap aplicado — escala ' + graft.s.toFixed(3) + ' · rotação ' +
         (graft.rot * 57.3).toFixed(1) + '° · offset (' + graft.dx.toFixed(0) + ', ' + graft.dy.toFixed(0) +
-        ') px. As bordas de blending são o alvo do ELA do detector. Congele novamente para variar o desalinhamento.';
+        ') px. As bordas de blending são o alvo do ELA do detector.';
       Terminal.log('[FORGE::FACE] enxerto gerado no modo foto (self-swap com micro-desalinhamento)', 'ok');
       return;
     }
@@ -2537,7 +2789,7 @@ const FaceForge = (() => {
     fx.swap = true;
     btnSwap.classList.add('on');
     setSt('máscara pronta');
-    $ro.textContent = 'máscara congelada — a face capturada é re-projetada sobre o vídeo ao vivo, alinhada pela linha dos olhos, com feather radial. Mecânica de face-swap; capture o quadro e mande ao detector.';
+    $ro.textContent = 'máscara congelada — a face capturada é re-projetada sobre o vídeo ao vivo, alinhada pela linha dos olhos, com feather radial.';
     Terminal.log('[FORGE::FACE] máscara congelada — swap de self ativado (blending radial)', 'ok');
   }
 
@@ -2606,21 +2858,30 @@ const FaceForge = (() => {
     }
   }
 
-  function loop(){
+  /* ── loop principal (live OU photo) ── */
+  function loop(ts){
     if (!running) return;
     if (mode === 'photo' && !photoCv){ running = false; return; }
     const src = mode === 'photo' ? photoCv : video;
     ctx.drawImage(src, 0, 0, W, H);
     const box = faceBox();
-    if (fx.smooth) smoothFace(box, src);
-    if (fx.puppet && lm && mode === 'live') puppet(box);
-    if (fx.swap && maskCv){ mode === 'photo' ? pasteMaskPhoto(box) : pasteMaskLive(box); }
-    if (fx.glitch) glitch(box, src);
+    if (mode === 'photo'){
+      if (revive.on) drawRevive(box);
+      if (fx.smooth) smoothFace(box, src);
+      if (fx.swap && maskCv) pasteMaskPhoto(box);
+      if (fx.glitch) glitch(box, src);
+    } else {
+      if (fx.smooth) smoothFace(box, src);
+      if (fx.puppet && lm) puppet(box);
+      if (fx.swap && maskCv) pasteMaskLive(box);
+      if (fx.glitch) glitch(box, src);
+    }
     hud(box);
+    lastTs = ts || 0;
     requestAnimationFrame(loop);
   }
 
-  /* — capturas → artefatos — */
+  /* ── capturas → artefatos ── */
   function shot(){
     cvs.toBlob(b => {
       if (!b) return;
@@ -2632,20 +2893,30 @@ const FaceForge = (() => {
 
   function clip(){
     if (rec) return;
-    const mime = ['video/webm;codecs=vp9','video/webm','video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+    /* se o driver por voz estiver ativo, o clipe sai COM a trilha —
+       um deepfake completo (vídeo + áudio) para o pipeline de vídeo */
+    const withAudio = revive.voice && revive.micStream && revive.micStream.getAudioTracks().length > 0;
+    const mimes = withAudio
+      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
+    const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
     const s2 = cvs.captureStream(30);
-    rec = new MediaRecorder(s2, mime ? { mimeType: mime } : undefined);
+    const streamRec = withAudio
+      ? new MediaStream([...s2.getVideoTracks(), ...revive.micStream.getAudioTracks()])
+      : s2;
+    rec = new MediaRecorder(streamRec, mime ? { mimeType: mime } : undefined);
     const parts = [];
     rec.ondataavailable = e => e.data.size && parts.push(e.data);
     rec.onstop = () => {
       const b = new Blob(parts, { type: rec.mimeType || 'video/webm' });
       const name = 'forge_clipe_' + (++seq) + '.webm';
       ForgeArtifacts.add(b, name, 'video');
-      Terminal.log('[FORGE::FACE] clipe gravado: ' + name + ' (' + fmtBytes(b.size) + ')', 'ok');
+      Terminal.log('[FORGE::FACE] clipe gravado: ' + name + ' (' + fmtBytes(b.size) + ')' +
+                   (withAudio ? ' · com trilha de voz (deepfake completo: vídeo + áudio)' : ''), 'ok');
       rec = null;
       $('#ffClip').disabled = false;
       $('#ffClip').classList.remove('on');
-      setSt(mode === 'photo' ? 'foto carregada' : 'câmera ativa');
+      setSt(revive.on ? (revive.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'photo' ? 'foto carregada' : 'câmera ativa'));
     };
     rec.start();
     $('#ffClip').disabled = true;
@@ -2666,6 +2937,8 @@ const FaceForge = (() => {
     });
     $photoBtn.addEventListener('click', () => $photoIn.click());
     $photoIn.addEventListener('change', loadPhoto);
+    $reviveBtn.addEventListener('click', toggleRevive);
+    $voiceBtn.addEventListener('click', toggleVoiceDrive);
 
     fxBtns.forEach(b => b.addEventListener('click', () => {
       if (b.disabled) return;
@@ -3147,11 +3420,11 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.1');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.2');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial (câmera ou foto) — loop sintetizar → detectar', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + reencenação facial — webcam, foto still ou REVIVER', 'plain');
     Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
     Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }
