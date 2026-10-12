@@ -1,23 +1,24 @@
 'use strict';
 /* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.9
-   BOCA v5 — alinhada com a cabeça + render nítido:
-   · TODO o bloco facial pós-mesh (cavidade, dentes, língua, pálpebras,
-     sulcos, sombras) agora é desenhado DENTRO da matriz de
-     transformação da cabeça (applyHeadT) — a boca não pode mais
-     divergir do rosto: mesma matriz, mesmo frame
-   · ordem de transforms da camada da cabeça corrigida para
-     corresponder EXATAMENTE a headPt (a do mesh)
-   · interior re-renderizado: gradação marrom→preto→vermelho, dentes
-     como faixa definida (arco + linha de sombra), língua definida
-     com sulco, escurecimento nos cantos, wet-line no lábio inferior
-   · amplitude: mapeamento de voz compressivo ((rms−0.012)·4)^0.8 —
-     fala normal = abertura moderada; drop máx 10.5% (teto 14%)
+   script.js — SYNTH::DETECT v6.10
+   BOCA v6 — dentes que seguem o movimento:
+   · BUG: teethH era max(4, 0.30·drop) — tira ~4px quase constante
+     colada em posição fixa → dentes "parados" no meio do movimento
+   · CORREÇÃO: arco dental de TAMPO NATURAL (~2.2% da altura do
+     rosto), com teto da cavidade — o arco tem seu tamanho; o que
+     cresce é o vão escuro ABAIXO dele. A distância dente→lábio
+     inferior é o que anima; os dentes agora seguem a boca
+   · separações interdentais (arco lê como dentes individuais)
+   · fade-in gradual do arco (open .16→.26) — sem pop no limiar
+
+   Mantido de v6.9: bloco facial dentro da matriz da cabeça
+   (alinhamento por construção), interior nítido, amplitude
+   compressiva, língua, wet-line.
 
    Sumário:
      CONFIG/Util · PixelArt · Terminal · ForensicCore (detecção,
      DOM-free) · VideoLab · PixelLab · ForgeArtifacts · DSP da FORGE
-     · VoiceForge · FaceForge (live · photo · REVIVER v8) · App
+     · VoiceForge · FaceForge (live · photo · REVIVER v9) · App
 ═════════════════════════════════════════════════════════════════ */
 
 const CONFIG = {
@@ -1470,7 +1471,7 @@ const ForensicCore = (() => {
     if (!SG.tech.length && !SG.descStrong.length && !SG.descWeak.length && !SG.raw.length)
       emit('nenhuma assinatura de gerador de áudio conhecida', 'ok');
     [...new Set(SG.edit)].forEach(l => emit('software na cadeia de edição: ' + l, 'plain'));
-    [...new Set(SG.auth)].forEach(l => emit('cadeia de gravação identificada: ' + l, 'ok'));
+    [...new Set(SG.auth)].forEach(l => emit('cadeia de gravação identificada: ' + l, 'ok');
     return SG;
   }
 
@@ -2290,18 +2291,18 @@ const VoiceForge = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   FACEFORGE v8 (v6.9) — reencenação facial
-   BOCA v5 — alinhada com a cabeça + render nítido:
-   · applyHeadT(cc): TODO o bloco facial pós-mesh (cavidade, dentes,
-     língua, pálpebras, sulcos, sombras) é desenhado dentro da MESMA
-     matriz da cabeça usada pelo mesh (headPt) — a boca não pode
-     divergir do rosto
-   · drawHeadLayer: ordem de transforms corrigida (idêntica a headPt)
-   · interior: gradação marrom→preto→vermelho; dentes = faixa
-     definida com linha de sombra; língua = forma com sulco;
-     escurecimento nos cantos; wet-line no lábio inferior
-   · voz: mapeamento compressivo ((rms−0.012)·4)^0.8; drop máx
-     10.5% (teto 14%)
+   FACEFORGE v9 (v6.10) — reencenação facial
+   BOCA v6 — dentes que seguem o movimento (a correção deste build):
+   · ANTES: teethH = max(4, 0.30·drop) — tira ~4px quase constante
+     em toda a faixa de fala (drop 15–42px → 4,5–12,6px), sempre no
+     mesmo ponto proporcional do vão → dentes "parados"
+   · AGORA: arco dental de altura NATURAL constante (~2.2% da altura
+     do rosto), com teto da cavidade — o arco tem seu tamanho; o que
+     anima é o vão escuro ABAIXO. Fala pequena = dentes + fresta;
+     fala ampla = arco inteiro + vão escuro + língua. Os dentes
+     seguem a boca porque a distância dente→lábio inferior respira
+   · separações interdentais (5 linhas sutis, arco lê como dentes
+     individuais) · fade-in gradual do arco (open .16→.26)
 ════════════════════════════════════════════════════════════════ */
 const FaceForge = (() => {
   const TAU = Math.PI * 2;
@@ -2489,7 +2490,7 @@ const FaceForge = (() => {
     return t * t * (3 - 2 * t);
   }
 
-  /* ═══ BOCA v5 — o rig ═══ */
+  /* ═══ BOCA v6 — o rig ═══ */
   const rp = { eyes: [], dCL: null, dCR: null };
 
   function computeRig(g){
@@ -2503,7 +2504,6 @@ const FaceForge = (() => {
       xm: g.mouth.x,   ym: g.lipTop.y
     };
     rp.halfW = Math.max(8, g.mouthW * .46);
-    /* drop: calibrado p/ fala (10.5%, teto 14%) */
     rp.drop = Math.min(rv.mouth * b.h * .105, b.h * .14);
 
     const smile = Math.max(0, rv.cur.smile);
@@ -2653,11 +2653,6 @@ const FaceForge = (() => {
   }
   const headPt2 = p => headPt(p.x, p.y);
 
-  /* ══ A CHAVE DO ALINHAMENTO ══
-     Tudo que é desenhado DEPOIS do mesh (cavidade, dentes, língua,
-     pálpebras, sulcos) entra nesta MESMA matriz — exatamente igual
-     à do headPt usado pelos triângulos do mesh. Ordem: tx/ty por
-     último (aplicado por fora), pivô por dentro.                        */
   function applyHeadT(cc){
     const T = rv.headT;
     cc.save();
@@ -2689,7 +2684,7 @@ const FaceForge = (() => {
       }
   }
 
-  /* camada da cabeça — MESMA ordem do applyHeadT (tx/ty por fora) */
+  /* camada da cabeça — MESMA ordem do applyHeadT */
   function drawHeadLayer(box){
     const T = rv.headT, b = box;
     const rx = b.w * 1.0, ry = b.h * 1.05;
@@ -2715,8 +2710,7 @@ const FaceForge = (() => {
     ctx.drawImage(headCv, hx, hy);
   }
 
-  /* olhar: cobre a íris original com esclera amostrada e desenha a
-     deslocada — sem fantasma (baked no work print) */
+  /* olhar (baked no work print) */
   function drawGazeInto(cc, g){
     if (!g.irisL || !g.irisR) return;
     const pairs = [[g.irisL, g.eyeL, 1], [g.irisR, g.eyeR, -1]];
@@ -2733,7 +2727,7 @@ const FaceForge = (() => {
     }
   }
 
-  /* palpebra real: textura da pálpebra esticada sobre o olho */
+  /* palpebra real */
   function drawLidFlaps(g){
     if (rp.blink < 0.05 && rp.wideE < 0.06) return;
     for (const e of [g.eyeL, g.eyeR]){
@@ -2748,7 +2742,7 @@ const FaceForge = (() => {
     }
   }
 
-  /* ═══ BOCA v5 — a cavidade (dentro da matriz da cabeça) ═══ */
+  /* ═══ BOCA v6 — a cavidade (dentro da matriz da cabeça) ═══ */
   function drawMouthInterior(g){
     const open = rv.mouth;
     const aIn = clamp01((open - .05) / .09);
@@ -2774,7 +2768,7 @@ const FaceForge = (() => {
       botPts.push({ x, y: topAt(x) + openAt(t) + 1.5 });
     }
 
-    /* ── clip na cavidade ── */
+    /* clip na cavidade */
     ctx.save();
     ctx.globalAlpha = aIn;
     ctx.beginPath();
@@ -2784,7 +2778,7 @@ const FaceForge = (() => {
     ctx.closePath();
     ctx.clip();
 
-    /* gradação do interior: marrom (topo) → preto → vermelho-escuro (fundo) */
+    /* gradação do interior */
     const gr = ctx.createLinearGradient(0, yTopC, 0, yBotC);
     gr.addColorStop(0,   'rgba(64,26,22,0.97)');
     gr.addColorStop(.30, 'rgba(24,11,10,0.99)');
@@ -2793,7 +2787,7 @@ const FaceForge = (() => {
     ctx.fillStyle = gr;
     ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
 
-    /* escurecimento nos cantos (como bocas reais) */
+    /* escurecimento nos cantos */
     [-1, 1].forEach(sgn => {
       const ccx = cx + sgn * halfW * .82, ccy = (yTopC + yBotC) / 2;
       const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30);
@@ -2803,40 +2797,70 @@ const FaceForge = (() => {
       ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
     });
 
-    /* ── DENTES: faixa DEFINIDA seguindo a curva do lábio superior ── */
-    if (open > .20){
-      const teethH = Math.max(4, Math.min(drop * .30, (yBotC - yTopC) * .42));
-      const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7);
-      const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
-      tg.addColorStop(0,   'rgba(240,238,232,0.88)');
-      tg.addColorStop(.62, 'rgba(238,234,226,0.55)');
-      tg.addColorStop(1,   'rgba(236,232,224,0.10)');
-      ctx.fillStyle = tg;
-      ctx.beginPath();
-      ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80));
-      for (let i = 0; i <= 12; i++){
-        const t = -.80 + 1.6 * i / 12;
-        ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW));
+    /* ═══ DENTES v6 — arco de tamanho NATURAL que segue a boca ═══
+       O arco não escala com a abertura (dentes não crescem quando
+       você abre a boca): altura ~2.2% do rosto, com teto da
+       cavidade. O que anima é o vão escuro ABAIXO do arco — a
+       distância dente→lábio inferior respira com a fala.          */
+    if (open > .16){
+      const cavH = yBotC - yTopC;
+      const teethNatural = rp.box.h * .022;                   // altura real do arco (~2.2% do rosto)
+      const teethH = Math.min(teethNatural, cavH * .65);      // revelado proporcionalmente
+      if (teethH >= 2.5){
+        const teethA = clamp01((open - .16) / .10);           // fade-in gradual
+        const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7);
+
+        /* faixa do arco — segue a curva do lábio superior */
+        const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
+        tg.addColorStop(0,   'rgba(242,240,234,0.90)');
+        tg.addColorStop(.62, 'rgba(240,236,228,0.60)');
+        tg.addColorStop(1,   'rgba(238,234,226,0.12)');
+        ctx.globalAlpha = aIn * teethA;
+        ctx.fillStyle = tg;
+        ctx.beginPath();
+        ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80));
+        for (let i = 0; i <= 12; i++){
+          const t = -.80 + 1.6 * i / 12;
+          ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW));
+        }
+        for (let i = 12; i >= 0; i--){
+          const t = -.80 + 1.6 * i / 12;
+          ctx.lineTo(cx + t * halfW, toothEdge(t));
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        /* separações interdentais — o arco lê como dentes individuais */
+        ctx.strokeStyle = 'rgba(20,10,9,0.35)';
+        ctx.lineWidth = Math.max(.8, rp.box.w * .0018);
+        for (let k = 0; k < 5; k++){
+          const t = -.60 + .30 * k;                            // 5 separações: 6 dentes
+          const x = cx + t * halfW;
+          const y0 = topAt(x) + 1;
+          const y1 = toothEdge(t) - Math.max(1, teethH * .12);
+          if (y1 - y0 > 2){
+            ctx.beginPath();
+            ctx.moveTo(x, y0);
+            ctx.lineTo(x + (t < 0 ? -1 : 1) * teethH * .06, y1);
+            ctx.stroke();
+          }
+        }
+
+        /* sombra definindo a borda inferior do arco */
+        ctx.strokeStyle = 'rgba(15,7,7,0.55)';
+        ctx.lineWidth = Math.max(1, rp.box.w * .002);
+        ctx.beginPath();
+        for (let i = 0; i <= 12; i++){
+          const t = -.80 + 1.6 * i / 12;
+          const x = cx + t * halfW, y = toothEdge(t);
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = aIn;                                // restaura p/ língua
       }
-      for (let i = 12; i >= 0; i--){
-        const t = -.80 + 1.6 * i / 12;
-        ctx.lineTo(cx + t * halfW, toothEdge(t));
-      }
-      ctx.closePath();
-      ctx.fill();
-      /* linha de sombra sob os dentes (define a faixa) */
-      ctx.strokeStyle = 'rgba(15,7,7,0.55)';
-      ctx.lineWidth = Math.max(1, rp.box.w * .002);
-      ctx.beginPath();
-      for (let i = 0; i <= 12; i++){
-        const t = -.80 + 1.6 * i / 12;
-        const x = cx + t * halfW, y = toothEdge(t);
-        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      }
-      ctx.stroke();
     }
 
-    /* ── LÍNGUA: forma DEFINIDA com sulco central (aberturas grandes) ── */
+    /* LÍNGUA — forma DEFINIDA com sulco central (aberturas grandes) */
     if (open > .42){
       const hgt = yBotC - yTopC;
       const tcy = yBotC - hgt * .24;
@@ -2849,7 +2873,6 @@ const FaceForge = (() => {
       ctx.beginPath();
       ctx.ellipse(cx, tcy, tw, th, 0, 0, TAU);
       ctx.fill();
-      /* sulco central da língua */
       ctx.strokeStyle = 'rgba(70,26,26,0.55)';
       ctx.lineWidth = Math.max(1, rp.box.w * .0025);
       ctx.beginPath();
@@ -2859,7 +2882,7 @@ const FaceForge = (() => {
     }
     ctx.restore();  /* unclip + alpha */
 
-    /* ── linha do lábio superior (borda superior NÍTIDA) ── */
+    /* linha do lábio superior (borda superior NÍTIDA) */
     ctx.save();
     ctx.globalAlpha = aIn * .45;
     ctx.strokeStyle = 'rgba(30,13,11,1)';
@@ -2871,7 +2894,7 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* ── wet-line: brilho da mucosa do lábio inferior (borda inferior) ── */
+    /* wet-line: brilho da mucosa do lábio inferior */
     ctx.save();
     ctx.globalAlpha = aIn * .30;
     ctx.strokeStyle = 'rgba(255,238,228,1)';
@@ -2883,7 +2906,7 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* sombra sob o lábio inferior (segue a mandíbula) */
+    /* sombra sob o lábio inferior */
     const d17 = dispAt(g.lowerLip.x, g.lowerLip.y);
     ctx.save();
     ctx.globalAlpha = aIn * .45;
@@ -2896,12 +2919,11 @@ const FaceForge = (() => {
     ctx.beginPath(); ctx.arc(0, 0, halfW * .55, 0, TAU); ctx.fill();
     ctx.restore();
 
-    /* cantos deslocados p/ sombras (raw — matriz da cabeça aplicada fora) */
     rp.dCL = dispAt(g.cornerL.x, g.cornerL.y);
     rp.dCR = dispAt(g.cornerR.x, g.cornerR.y);
   }
 
-  /* sombreamento esfumado (sulcos) — coordenadas raw (matriz fora) */
+  /* sombreamento esfumado (sulcos) */
   function foldShadow(x0, y0, qx, qy, x1, y1, alpha, width){
     ctx.save();
     ctx.lineCap = 'round';
@@ -3044,8 +3066,8 @@ const FaceForge = (() => {
     ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
     setSt('foto carregada');
     $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
-      'Clique em <b>reviver</b>: a boca abre em cima do MESMO movimento do rosto (matriz compartilhada), ' +
-      'com dentes, língua e bordas nítidas. Ative o driver de voz para seguir a sua fala.';
+      'Clique em <b>reviver</b>: boca alinhada ao rosto, com arco dental de tamanho natural — ' +
+      'os dentes mantêm sua altura e o vão escuro abaixo deles cresce com a fala. Ative o driver de voz para seguir a sua fala.';
     Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
     running = true;
     loop();
@@ -3067,10 +3089,10 @@ const FaceForge = (() => {
       rv.nextTwitch = 4 + Math.random() * 5;
       rv.emph = 0; rv.nod = 0; rv.hfX = 0; rv.velH = 0;
       setSt(rv.voice ? 'foto animada (voz)' : 'foto animada');
-      $ro.innerHTML = 'reencenação ATIVA — boca v5: desenhada dentro da matriz da cabeça (alinhada ao ' +
-        'rosto por construção) e renderizada com dentes, língua e bordas nítidas. Abertura calibrada para ' +
-        'fala natural. Grave o clipe e envie ao detector.';
-      Terminal.log('[FORGE::FACE] reencenação v8 ativada (boca v5: matriz da cabeça compartilhada · render nítido · amplitude calibrada)', 'ok');
+      $ro.innerHTML = 'reencenação ATIVA — boca v6: arco dental de altura natural preso à maxila; ' +
+        'o que anima é o vão escuro entre a borda dos dentes e o lábio inferior. Os dentes seguem a boca. ' +
+        'Grave o clipe e envie ao detector.';
+      Terminal.log('[FORGE::FACE] reencenação v9 ativada (boca v6: arco dental de tamanho natural · vão escuro anima)', 'ok');
     } else {
       setSt(rv.voice ? 'foto animada (voz)' : 'foto carregada');
       $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
@@ -3078,7 +3100,7 @@ const FaceForge = (() => {
     }
   }
 
-  /* ── REVIVER: driver pela voz do operador ── */
+  /* ── REVIVER: driver pela voz ── */
   async function toggleVoiceDrive(){
     if (rv.voice){ stopVoiceDrive(); return; }
     if (mode !== 'photo' || !photoCv) return;
@@ -3101,8 +3123,8 @@ const FaceForge = (() => {
     if (!rv.on) toggleRevive();
     setSt('foto animada (voz)');
     $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca abre e fecha seguindo a sua fala ' +
-      '(mapeamento compressivo: fala normal = abertura moderada; ênfase = abre de verdade). ' +
-      'Grave o clipe: sai <b>com a sua trilha</b> para a bancada analisar vídeo + áudio de uma vez.';
+      '(mapeamento compressivo; transientes → ênfase). Grave o clipe: sai <b>com a sua trilha</b> ' +
+      'para a bancada analisar vídeo + áudio de uma vez.';
     Terminal.log('[FORGE::FACE] driver por voz ativo — RMS compressivo dirige a abertura; transientes → ênfase', 'ok');
   }
   function stopVoiceDrive(){
@@ -3115,7 +3137,7 @@ const FaceForge = (() => {
     Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain');
   }
 
-  /* ── tracking (FaceMesh via CDN; degrada p/ fallback proporcional) ── */
+  /* ── tracking ── */
   async function meshOnce(){
     try { await fm.send({ image: mode === 'photo' ? photoCv : video }); } catch {}
   }
@@ -3157,7 +3179,6 @@ const FaceForge = (() => {
 
   /* ═══ DRIVERS ═══ */
 
-  /* boca: alvo (voz OU sílaba) → mola assimétrica suave */
   function driveMouth(t, dt){
     let tgtM = .04, tgtW = 0;
     if (rv.voice && rv.analyser){
@@ -3166,7 +3187,6 @@ const FaceForge = (() => {
       let s = 0;
       for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
       const rms = Math.sqrt(s / rv.tbuf.length);
-      /* compressivo: fala normal = abertura moderada; só ênfase chega a 1 */
       tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8));
       rv.analyser.getByteFrequencyData(rv.fbuf);
       let num = 0, den = 0;
@@ -3227,7 +3247,6 @@ const FaceForge = (() => {
     rv.nod *= Math.exp(-dt * 5.5);
   }
 
-  /* humor: auto (deriva lenta + micro-oscilação) ou preset */
   function driveEmotion(t, dt){
     if (t > rv.nextMood){
       rv.nextMood = t + 3 + Math.random() * 4.5;
@@ -3265,7 +3284,6 @@ const FaceForge = (() => {
     }
   }
 
-  /* olhar: sacadas + deriva; olhos lideram, cabeça segue */
   function driveGaze(t, dt){
     if (t > rv.nextSac){
       rv.nextSac = t + .35 + Math.random() * 2.2;
@@ -3313,17 +3331,13 @@ const FaceForge = (() => {
     driveBlink(t);
     computeHeadT(box, t);
 
-    /* work print: foto + íris deslocada (vira textura da malha) */
     wctx.drawImage(photoCv, 0, 0);
     drawGazeInto(wctx, g);
 
-    /* camadas da cabeça e do mesh (cada uma com a MESMA matriz) */
     drawHeadLayer(box);
     computeRig(g);
     renderMesh();
 
-    /* ══ bloco facial pós-mesh DENTRO da matriz da cabeça ══
-           — é isto que alinha boca/pálpebras/sulcos ao rosto      */
     applyHeadT(ctx);
     drawLidFlaps(g);
     drawMouthInterior(g);
@@ -4043,11 +4057,11 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.9');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.10');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação (boca v5: matriz da cabeça compartilhada, render nítido) — webcam, foto ou REVIVER', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + reencenação (boca v6: arco dental natural — os dentes seguem a boca) — webcam, foto ou REVIVER', 'plain');
     Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
     Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }
