@@ -2561,10 +2561,10 @@ const FaceForge = (() => {
       xm: g.mouth.x,   ym: g.lipTop.y
     };
     rp.halfW = Math.max(8, g.mouthW * .46);
-    /* v8.2 · recalibrado: fala comum desce ~4–6% da altura do rosto,
-       vogal escancarada ~12% — o v8.1 passava disso e "puxava a cara
-       para baixo". Amplitude .13, teto .155 */
-    rp.drop = Math.min(rv.mouth * b.h * .13, b.h * .155);
+    /* v8.3 · CURVA COMPRESSIVA + teto rígido: mouth^1.25 amortece os PICOS
+       de voz (os momentos "estranhos") sem esmorecer a fala comum.
+       Fala comum ≈ 3–5% da altura do rosto · boca escancarada ≈ 11% */
+    rp.drop = Math.min(Math.pow(rv.mouth, 1.25) * b.h * .12, b.h * .11);
 
     const smile = Math.max(0, rv.cur.smile);
     const asym = Math.max(-.5, Math.min(.5, rv.asym + rv.twitch * .12)) * Math.max(0, smile - .12) / .72;
@@ -2579,9 +2579,8 @@ const FaceForge = (() => {
     const spread = rv.width * g.mouthW * .08;
     rp.cLdx = -g.mouthW * fOut * (1 + asym) - spread;
     rp.cRdx =  g.mouthW * fOut * (1 - asym) + spread;
-    /* v8.2 · cantos acompanham a mandíbula bem de leve (8% do drop —
-       o v8.1 usava 18% e os cantos "caíam" junto com o queixo) */
-    const cornerDrop = rp.drop * .08;
+    /* v8.3 · cantos acompanham a mandíbula de forma quase imperceptível */
+    const cornerDrop = rp.drop * .06;
     rp.cLdy = -lift * (1 + asym) + cornerDrop;
     rp.cRdy = -lift * (1 - asym) + cornerDrop;
 
@@ -2624,11 +2623,11 @@ const FaceForge = (() => {
     const enter = ss(s - 7, s + 2, y);
     if (enter <= 0) return 0;
     const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s));
-    /* v8.2 · rotação suavizada: queixo desce ~30% mais que os lábios
-       (v8.1 usava 45% — exagero que "puxava a expressão para baixo") */
-    const rot = .95 + .30 * t2;
+    /* v8.3 · rotação discreta (queixo +18% no máximo, era +30%) e
+       atenuação lateral maior: as bochechas praticamente não descem */
+    const rot = .95 + .18 * t2;
     const b = rp.box;
-    const lat = 1 - .38 * clamp01(Math.abs(x - b.cx) / (b.w * .5));
+    const lat = 1 - .42 * clamp01(Math.abs(x - b.cx) / (b.w * .5));
     const side = x < b.cx ? (1 + rp.dropAsym) : (1 - rp.dropAsym);
     return rp.drop * enter * rot * lat * side;
   }
