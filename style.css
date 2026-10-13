@@ -28,6 +28,8 @@ body{background:var(--bg);color:var(--text);font:400 15px/1.6 var(--sans);-webki
 ::-webkit-scrollbar-thumb{background:var(--line-2)}
 img{max-width:100%}
 a{color:inherit}
+/* o atributo hidden precisa vencer qualquer display:flex/grid das classes (ex.: .cam-empty, .ev-preview) */
+[hidden]{display:none !important}
 section{scroll-margin-top:72px}
 code{font-family:var(--mono);font-size:.9em;color:var(--green)}
 kbd{font:700 10px var(--mono);border:1px solid var(--line-2);border-bottom-width:2px;padding:1px 5px;color:var(--text-2)}
@@ -162,7 +164,8 @@ kbd{font:700 10px var(--mono);border:1px solid var(--line-2);border-bottom-width
            background:repeating-linear-gradient(0deg,rgba(255,255,255,.015) 0 1px,transparent 1px 3px)}
 .term-body::-webkit-scrollbar{width:8px}
 .term-body::-webkit-scrollbar-thumb{background:var(--line-2)}
-.tl{white-space:pre-wrap;word-break:break-word;min-height:1.75em;padding-left:20ch;text-indent:-20ch}
+/* .tline (linha do terminal) — antes era .tl, que colidia com os cantos .cnr.tl do HUD */
+.tline{white-space:pre-wrap;word-break:break-word;min-height:1.75em;padding-left:20ch;text-indent:-20ch}
 .t-ts{color:var(--text-3)}
 .t-tag{font-weight:700}
 .t-tag.t-ok{color:var(--green)}

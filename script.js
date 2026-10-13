@@ -1,15 +1,19 @@
 'use strict';
 /* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.10.1
-   HOTFIX: parêntese faltando em scanAudioSignatures (v6.10) — erro
-   de sintaxe que impedia o parse do script INTEIRO, o que deixava o
-   botão de carregar foto permanentemente desabilitado (o listener
-   do consentimento nunca registrava).
+   script.js — SYNTH::DETECT v6.10
+   BOCA v6 — dentes que seguem o movimento:
+   · BUG: teethH era max(4, 0.30·drop) — tira ~4px quase constante
+     colada em posição fixa → dentes "parados" no meio do movimento
+   · CORREÇÃO: arco dental de TAMPO NATURAL (~2.2% da altura do
+     rosto), com teto da cavidade — o arco tem seu tamanho; o que
+     cresce é o vão escuro ABAIXO dele. A distância dente→lábio
+     inferior é o que anima; os dentes agora seguem a boca
+   · separações interdentais (arco lê como dentes individuais)
+   · fade-in gradual do arco (open .16→.26) — sem pop no limiar
 
-   Mantido de v6.10: boca v6 (arco dental de tamanho natural que
-   segue o movimento — o vão escuro abaixo dos dentes é o que
-   anima), matriz da cabeça compartilhada, interior nítido,
-   amplitude compressiva, língua com sulco, wet-line.
+   Mantido de v6.9: bloco facial dentro da matriz da cabeça
+   (alinhamento por construção), interior nítido, amplitude
+   compressiva, língua, wet-line.
 
    Sumário:
      CONFIG/Util · PixelArt · Terminal · ForensicCore (detecção,
@@ -112,7 +116,7 @@ const Terminal = (() => {
   };
   function log(text = '', status = 'plain'){
     const row = document.createElement('div');
-    row.className = 'tl';
+    row.className = 'tline';
     const ts = document.createElement('span'); ts.className = 't-ts'; ts.textContent = stamp();
     const tag = document.createElement('span');
     tag.className = 't-tag' + (TAGS[status] ? ' t-' + status : '');
@@ -123,13 +127,13 @@ const Terminal = (() => {
   }
   function section(title){
     const d = document.createElement('div');
-    d.className = 'tl t-sec';
+    d.className = 'tline t-sec';
     d.textContent = ('── ' + title + ' ').padEnd(52, '─');
     body.appendChild(d); scroll();
   }
   function progress(label){
     const d = document.createElement('div');
-    d.className = 'tl t-dim';
+    d.className = 'tline t-dim';
     body.appendChild(d);
     const W = 22;
     const draw = p => {
@@ -1732,7 +1736,7 @@ const ForensicCore = (() => {
     if (QT.length) add('auth', 2, 'Metadados de captura QuickTime: ' + QT.map(t => t.key + ' "' + t.value + '"').join(', '));
     if (S.probe && S.probe.gpmd) add('auth', 2, 'Telemetria GPMD (GoPro) embutida — captura de câmera real');
     if (!R.metaCount && !QT.length && !(S.probe && S.probe.gpmd))
-      add('syn', 1, 'Ausência total de metadados de captura (geração OU strip por re-encode');
+      add('syn', 1, 'Ausência total de metadados de captura (geração OU strip por re-encode)');
     if (F && F.ok){
       add('info', 0, 'ELA médio dos quadros: ' + F.elaMean.toFixed(2) + ' (CV ' + F.elaCV.toFixed(3) + ') — informativo');
     }
@@ -1803,7 +1807,7 @@ const ForensicCore = (() => {
     onStage(3, 'run');
     io.section && io.section('ASSINATURAS DE IA');
     emit('varrendo ' + R.metaCount + ' campos de metadados e ' +
-         fmtBytes(Math.min(win.text.length, CONFIG.audioWinBytes * 2) + ' de bytes contra ' +
+         fmtBytes(Math.min(win.text.length, CONFIG.audioWinBytes * 2)) + ' de bytes contra ' +
          VIDEO_SIGS.length + ' assinaturas de vídeo-IA', 'run');
     if (win.split) emit('varredura de strings limitada a cabeçalho + rodapé (1 MB cada) — onde metadados residem', 'plain');
     const SG = R.videoSigs = scanTieredSignatures(VIDEO_SIGS, V.meta.concat(
@@ -1909,7 +1913,7 @@ const VideoLab = (() => {
       const bar = progressBar('extraindo ' + n + ' quadros via decodificador do navegador');
       for (let i = 0; i < n; i++){
         const t = dur * (i + 0.5) / n;
-        v.currentTime = Math.min(t, Math.max(0, dur - 0.05);
+        v.currentTime = Math.min(t, Math.max(0, dur - 0.05));
         await once(v, 'seeked', 5000);
         bctx.drawImage(v, 0, 0, big.width, big.height);
         sctx.drawImage(v, 0, 0, small.width, small.height);
@@ -1958,12 +1962,12 @@ const PixelLab = (() => {
   async function elaGrid(img){
     const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
     if (!iw || !ih) throw new Error('dimensões inválidas');
-    const W = Math.min(560, iw), H = Math.max(2, Math.round(ih * W / iw);
+    const W = Math.min(560, iw), H = Math.max(2, Math.round(ih * W / iw));
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d', { willReadFrequently: true });
     x.drawImage(img, 0, 0, W, H);
     const orig = x.getImageData(0, 0, W, H).data;
-    const jpg = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.85);
+    const jpg = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.85));
     const url = URL.createObjectURL(jpg);
     try {
       const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
@@ -1976,9 +1980,9 @@ const PixelLab = (() => {
       for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++){
         let sum = 0, n = 0;
         for (let y = gy * ch; y < Math.min(H, (gy + 1) * ch); y += 3)
-          for (let px = gx * cw; px < Math.min(W, (gx + 1) * cw; px += 3){
+          for (let px = gx * cw; px < Math.min(W, (gx + 1) * cw); px += 3){
             const i = (y * W + px) * 4;
-            sum += (Math.abs(orig[i] - rec[i]) + Math.abs(orig[i+1] - rec[i+1]) + Math.abs(orig[i+2] - rec[i+2]) / 3;
+            sum += (Math.abs(orig[i] - rec[i]) + Math.abs(orig[i+1] - rec[i+1]) + Math.abs(orig[i+2] - rec[i+2])) / 3;
             n++;
           }
         cells.push(sum / (n || 1));
@@ -2060,20 +2064,20 @@ function tiltFilter(x, dir){
 function ringMod(x, hz, sr){
   const out = new Float32Array(x.length);
   for (let i = 0; i < x.length; i++)
-    out[i] = x[i] * (0.55 + 0.45 * Math.sin(2 * Math.PI * hz * (i / sr));
+    out[i] = x[i] * (0.55 + 0.45 * Math.sin(2 * Math.PI * hz * (i / sr)));
   return out;
 }
 function encodeWav(pcm, sr){
   const n = pcm.length;
   const buf = new ArrayBuffer(44 + n * 2);
   const dv = new DataView(buf);
-  const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i));
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
   w(0,'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8,'WAVE');
   w(12,'fmt '); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
   dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
   w(36,'data'); dv.setUint32(40,n*2,true);
   for (let i = 0; i < n; i++){
-    const v = Math.max(-1, Math.min(1, pcm[i]);
+    const v = Math.max(-1, Math.min(1, pcm[i]));
     dv.setInt16(44 + i * 2, v < 0 ? v * 32768 : v * 32767, true);
   }
   return new Blob([buf], { type: 'audio/wav' });
@@ -2087,12 +2091,12 @@ function mixMono(ab){
   return out;
 }
 function quickProfile(pcm, sr){
-  const ds = Math.max(1, Math.round(sr / 8000), fsr = sr / ds;
+  const ds = Math.max(1, Math.round(sr / 8000)), fsr = sr / ds;
   const n = Math.floor(pcm.length / ds);
   const sig = new Float32Array(n);
   for (let i = 0; i < n; i++) sig[i] = pcm[i * ds];
   const FW = 400, FH = 250;
-  const lagLo = Math.max(2, Math.round(fsr / 400), lagHi = Math.min(FW - 2, Math.round(fsr / 65);
+  const lagLo = Math.max(2, Math.round(fsr / 400)), lagHi = Math.min(FW - 2, Math.round(fsr / 65));
   const f0s = [];
   for (let pos = 0; pos + FW < n; pos += FH){
     let e0 = 0;
@@ -2108,15 +2112,15 @@ function quickProfile(pcm, sr){
     if (best > 0.45 && bl) f0s.push(fsr / bl);
   }
   f0s.sort((a, b) => a - b);
-  const win = Math.floor(sr * 0.04, rms = [];
+  const win = Math.floor(sr * 0.04), rms = [];
   for (let pos = 0; pos + win < pcm.length; pos += win){
     let e = 0;
-    for (let i = 0; i < win; i++) e += pcm[pos + i] * pcm[i] * pcm[pos + i];
-    rms.push(20 * Math.log10(Math.sqrt(e / win) + 1e-9);
+    for (let i = 0; i < win; i++) e += pcm[pos + i] * pcm[pos + i];
+    rms.push(20 * Math.log10(Math.sqrt(e / win) + 1e-9));
   }
   rms.sort((a, b) => a - b);
   return { f0: f0s.length ? f0s[f0s.length >> 1] : null,
-           floorDb: rms.length ? rms[Math.floor(rms.length * 0.1] : null,
+           floorDb: rms.length ? rms[Math.floor(rms.length * 0.1)] : null,
            frames: f0s.length };
 }
 
@@ -2163,7 +2167,7 @@ const VoiceForge = (() => {
   }
 
   function presetR(p){
-    if (p.ring) return Math.max(0.5, Math.min(2.2, 110 / (st.prof && st.prof.f0 || 130);
+    if (p.ring) return Math.max(0.5, Math.min(2.2, 110 / (st.prof && st.prof.f0 || 130)));
     return p.r || 1;
   }
 
@@ -2205,7 +2209,7 @@ const VoiceForge = (() => {
       $rec.textContent = '● gravar 5 s';
       setSt('processando…');
       try {
-        const blob = new Blob(st.chunks, { type: st.rec.mimeType || 'audio/webm' };
+        const blob = new Blob(st.chunks, { type: st.rec.mimeType || 'audio/webm' });
         const buf = await blob.arrayBuffer();
         const actx = new (window.AudioContext || window.webkitAudioContext)();
         const ab = await actx.decodeAudioData(buf);
@@ -2230,11 +2234,11 @@ const VoiceForge = (() => {
     $rec.classList.add('on');
     setSt('gravando…');
     let left = 5;
-    $rec.textContent = '■ parar (' + left;
+    $rec.textContent = '■ parar (' + left + ')';
     st.timer = setInterval(() => {
       left--;
-      if (left <= 0){ clearInterval(st.timer); try { st.rec.stop(); } catch {}
-      else $rec.textContent = '■ parar (' + left;
+      if (left <= 0){ clearInterval(st.timer); try { st.rec.stop(); } catch {} }
+      else $rec.textContent = '■ parar (' + left + ')';
     }, 1000);
     st.rec.start();
   }
@@ -2252,11 +2256,11 @@ const VoiceForge = (() => {
     st.sp.onaudioprocess = e => {
       const inp = e.inputBuffer.getChannelData(0);
       const outp = e.outputBuffer.getChannelData(0);
-      const p = PRESETS.find(x => x.k === st.livePreset || PRESETS[0];
+      const p = PRESETS.find(x => x.k === st.livePreset) || PRESETS[0];
       const seg = new Float32Array(tail.length + inp.length);
       seg.set(tail); seg.set(inp, tail.length);
       const sh = transform(seg, p, st.ctx.sampleRate);
-      outp.set(sh.subarray(tail.length);
+      outp.set(sh.subarray(tail.length));
       tail = inp.slice(inp.length - 1024);
     };
     st.src.connect(st.sp);
@@ -2264,7 +2268,7 @@ const VoiceForge = (() => {
     st.live = true;
     $live.classList.add('on');
     $live.textContent = '■ parar ao vivo';
-    setSt('ao vivo (use fones)';
+    setSt('ao vivo (use fones)');
     $ro.innerHTML = 'conversão em tempo real ATIVA — fale e ouça o resultado (latência ~100 ms). ' +
       '<b>Use fones de ouvido</b> para evitar microfonia. Troque de preset acima.';
     Terminal.log('[FORGE::VOICE] modo ao vivo iniciado — conversor aplicado sobre o mic em tempo real', 'run');
@@ -2287,19 +2291,23 @@ const VoiceForge = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   FACEFORGE v9 — reencenação facial
-   BOCA v6 — arco dental de tamanho natural: os dentes mantêm sua
-   altura (~2.2% do rosto) presos à maxila; o que cresce com a fala
-   é o vão escuro ABAIXO deles — por isso os dentes seguem a boca.
-   Bloco facial pós-mesh desenhado DENTRO da matriz da cabeça
-   (applyHeadT) — boca/pálpebras/sulcos alinhados ao rosto por
-   construção. Interior nítido, separações interdentais, língua com
-   sulco, wet-line, amplitude compressiva.
+   FACEFORGE v9 (v6.10) — reencenação facial
+   BOCA v6 — dentes que seguem o movimento (a correção deste build):
+   · ANTES: teethH = max(4, 0.30·drop) — tira ~4px quase constante
+     em toda a faixa de fala (drop 15–42px → 4,5–12,6px), sempre no
+     mesmo ponto proporcional do vão → dentes "parados"
+   · AGORA: arco dental de altura NATURAL constante (~2.2% da altura
+     do rosto), com teto da cavidade — o arco tem seu tamanho; o que
+     anima é o vão escuro ABAIXO. Fala pequena = dentes + fresta;
+     fala ampla = arco inteiro + vão escuro + língua. Os dentes
+     seguem a boca porque a distância dente→lábio inferior respira
+   · separações interdentais (5 linhas sutis, arco lê como dentes
+     individuais) · fade-in gradual do arco (open .16→.26)
 ════════════════════════════════════════════════════════════════ */
 const FaceForge = (() => {
   const TAU = Math.PI * 2;
-  const ss = (a, b, x) => { x = Math.min(1, Math.max(0, (x - a) / (b - a); return x * x * (3 - 2 * x); };
-  const clamp01 = x => Math.min(1, Math.max(0, x);
+  const ss = (a, b, x) => { x = Math.min(1, Math.max(0, (x - a) / (b - a))); return x * x * (3 - 2 * x); };
+  const clamp01 = x => Math.min(1, Math.max(0, x));
 
   const video = $('#ffVideo'), cvs = $('#ffCanvas'), empty = $('#ffEmpty');
   const $st = $('#ffStatus'), $ro = $('#ffReadout');
@@ -2382,7 +2390,7 @@ const FaceForge = (() => {
       };
     }
     const x = box.x, y = box.y, w = box.w, h = box.h;
-    const mkEye = cx => ({ c: { x: cx, y: y + h * .40 }, w: w * .18, h: w * .032 };
+    const mkEye = cx => ({ c: { x: cx, y: y + h * .40 }, w: w * .18, h: w * .032 });
     return {
       box,
       mouth: { x: box.cx, y: y + h * .70 }, upperLip: { x: box.cx, y: y + h * .665 }, chin: { x: box.cx, y: y + h * .97 },
@@ -2407,12 +2415,12 @@ const FaceForge = (() => {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const m = c.getContext('2d');
     m.save();
-    m.translate(b.cx, b.y + b.h * .44;
+    m.translate(b.cx, b.y + b.h * .44);
     m.scale(b.w * .76, b.h * .82);
     const gr = m.createRadialGradient(0, 0, 0, 0, 0, 1);
-    gr.addColorStop(0, 'rgba(255,255,255,1)';
-    gr.addColorStop(.72, 'rgba(255,255,255,1)';
-    gr.addColorStop(1, 'rgba(255,255,255,0)';
+    gr.addColorStop(0, 'rgba(255,255,255,1)');
+    gr.addColorStop(.72, 'rgba(255,255,255,1)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
     m.fillStyle = gr;
     m.beginPath(); m.arc(0, 0, 1, 0, TAU); m.fill();
     m.restore();
@@ -2423,9 +2431,9 @@ const FaceForge = (() => {
     radial.width = radial.height = 256;
     const r = radial.getContext('2d');
     const g = r.createRadialGradient(128, 128, 40, 128, 128, 128);
-    g.addColorStop(0, 'rgba(255,255,255,1)';
-    g.addColorStop(.75, 'rgba(255,255,255,.96)';
-    g.addColorStop(1, 'rgba(255,255,255,0)';
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(.75, 'rgba(255,255,255,.96)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
     r.fillStyle = g; r.fillRect(0, 0, 256, 256);
   }
 
@@ -2433,10 +2441,10 @@ const FaceForge = (() => {
   function drawFeathered(sx, sy, sw, sh, cx, cy, o = {}, tctx){
     if (!radial.width) buildRadial();
     const cc = tctx || ctx;
-    sw = Math.max(4, Math.round(sw); sh = Math.max(4, Math.round(sh);
+    sw = Math.max(4, Math.round(sw)); sh = Math.max(4, Math.round(sh));
     sx = Math.round(sx); sy = Math.round(sy);
     mtmp.width = sw; mtmp.height = sh;
-    const m = mtmp.getContext('2d';
+    const m = mtmp.getContext('2d');
     m.imageSmoothingEnabled = true;
     m.imageSmoothingQuality = 'high';
     m.clearRect(0, 0, sw, sh);
@@ -2447,7 +2455,7 @@ const FaceForge = (() => {
     cc.save();
     cc.imageSmoothingEnabled = true;
     cc.imageSmoothingQuality = 'high';
-    cc.translate(cx + (o.tx || 0), cy + (o.ty || 0);
+    cc.translate(cx + (o.tx || 0), cy + (o.ty || 0));
     if (o.rot) cc.rotate(o.rot);
     if (o.sx !== undefined || o.sy !== undefined)
       cc.scale(o.sx === undefined ? 1 : o.sx, o.sy === undefined ? 1 : o.sy);
@@ -2474,6 +2482,7 @@ const FaceForge = (() => {
       }
   }
 
+  /* peso de influência: blob elíptico com queda suave */
   function blobW(x, y, cx, cy, rx, ry){
     const dx = (x - cx) / rx, dy = (y - cy) / ry, d2 = dx * dx + dy * dy;
     if (d2 >= 1) return 0;
@@ -2488,6 +2497,7 @@ const FaceForge = (() => {
     const b = g.box;
     rp.box = b;
     rp.chinY = g.chin.y;
+    /* a COSTURA DOS LÁBIOS — a única fonte de verdade da boca */
     rp.seamPts = {
       xL: g.cornerL.x, yL: g.cornerL.y,
       xR: g.cornerR.x, yR: g.cornerR.y,
@@ -2532,6 +2542,7 @@ const FaceForge = (() => {
     rp.ecDy = -smile * b.h * .011;
   }
 
+  /* costura dos lábios em x — quadrática por 61/291 passando por 13 */
   function seamY(x){
     const s = rp.seamPts;
     const span = s.xR - s.xL;
@@ -2547,7 +2558,7 @@ const FaceForge = (() => {
     if (y <= s - 7) return 0;
     const enter = ss(s - 7, s + 2, y);
     if (enter <= 0) return 0;
-    const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s);
+    const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s));
     return rp.drop * enter * (1 - .18 * t2);
   }
 
@@ -2609,18 +2620,19 @@ const FaceForge = (() => {
     ctx.beginPath();
     ctx.moveTo(gx + (d0.x - gx) * k, gy + (d0.y - gy) * k);
     ctx.lineTo(gx + (d1.x - gx) * k, gy + (d1.y - gy) * k);
-    ctx.lineTo(gx + (d2.x - gx) * k, gy + (d2.y - gy) * k;
+    ctx.lineTo(gx + (d2.x - gx) * k, gy + (d2.y - gy) * k);
     ctx.closePath();
     ctx.clip();
     ctx.transform(a, b, c, d, e, f);
-    let bx = Math.min(s0.x, s1.x, s2.x), by = Math.min(s0.y, s1.y, s2.y;
+    let bx = Math.min(s0.x, s1.x, s2.x), by = Math.min(s0.y, s1.y, s2.y);
     let bw = Math.max(s0.x, s1.x, s2.x) - bx + 2, bh = Math.max(s0.y, s1.y, s2.y) - by + 2;
-    bx = Math.max(0, Math.floor(bx); by = Math.max(0, Math.floor(by);
-    bw = Math.min(W - bx, Math.ceil(bw); bh = Math.min(H - by, Math.ceil(bh);
+    bx = Math.max(0, Math.floor(bx)); by = Math.max(0, Math.floor(by));
+    bw = Math.min(W - bx, Math.ceil(bw)); bh = Math.min(H - by, Math.ceil(bh));
     if (bw > 0 && bh > 0) ctx.drawImage(workCv, bx, by, bw, bh, bx, by, bw, bh);
     ctx.restore();
   }
 
+  /* transformação da cabeça (a malha herda: rosto+crânio rígidos) */
   function computeHeadT(box, t){
     const b = box;
     const rot = .007 * Math.sin(TAU * .26 * t + .3)
@@ -2665,13 +2677,14 @@ const FaceForge = (() => {
         const mA = Math.abs(dA.x - a.x) + Math.abs(dA.y - a.y);
         const mB = Math.abs(dB.x - bq.x) + Math.abs(dB.y - bq.y);
         const mC = Math.abs(dC.x - c.x) + Math.abs(dC.y - c.y);
-        const mD = Math.abs(dD.x - d.x) + Math.abs(dD.y - d.y;
+        const mD = Math.abs(dD.x - d.x) + Math.abs(dD.y - d.y);
         if (Math.max(mA, mB, mC, mD) < 0.25) continue;
         drawTri(a, bq, c, dA, dB, dC);
         drawTri(a, c, d, dA, dC, dD);
       }
   }
 
+  /* camada da cabeça — MESMA ordem do applyHeadT */
   function drawHeadLayer(box){
     const T = rv.headT, b = box;
     const rx = b.w * 1.0, ry = b.h * 1.05;
@@ -2697,6 +2710,7 @@ const FaceForge = (() => {
     ctx.drawImage(headCv, hx, hy);
   }
 
+  /* olhar (baked no work print) */
   function drawGazeInto(cc, g){
     if (!g.irisL || !g.irisR) return;
     const pairs = [[g.irisL, g.eyeL, 1], [g.irisR, g.eyeR, -1]];
@@ -2713,6 +2727,7 @@ const FaceForge = (() => {
     }
   }
 
+  /* palpebra real */
   function drawLidFlaps(g){
     if (rp.blink < 0.05 && rp.wideE < 0.06) return;
     for (const e of [g.eyeL, g.eyeR]){
@@ -2736,7 +2751,7 @@ const FaceForge = (() => {
     if (drop < 1.5) return;
 
     const cx = g.mouth.x;
-    const halfW = Math.max(6, rp.halfW * (1 + Math.max(0, rv.width) * .07 - Math.min(0, rv.width) * .05);
+    const halfW = Math.max(6, rp.halfW * (1 + Math.max(0, rv.width) * .07 - Math.min(0, rv.width) * .05));
     const openAt = t => Math.max(0, 1 - Math.pow(Math.abs(t), 1.6)) * drop * .92;
     const topAt  = x => seamY(x) + 1.0;
 
@@ -2753,6 +2768,7 @@ const FaceForge = (() => {
       botPts.push({ x, y: topAt(x) + openAt(t) + 1.5 });
     }
 
+    /* clip na cavidade */
     ctx.save();
     ctx.globalAlpha = aIn;
     ctx.beginPath();
@@ -2762,43 +2778,50 @@ const FaceForge = (() => {
     ctx.closePath();
     ctx.clip();
 
+    /* gradação do interior */
     const gr = ctx.createLinearGradient(0, yTopC, 0, yBotC);
-    gr.addColorStop(0,   'rgba(64,26,22,0.97)';
-    gr.addColorStop(.30, 'rgba(24,11,10,0.99)';
-    gr.addColorStop(.75, 'rgba(38,16,14,0.98';
-    gr.addColorStop(1,   'rgba(72,30,26,0.96';
+    gr.addColorStop(0,   'rgba(64,26,22,0.97)');
+    gr.addColorStop(.30, 'rgba(24,11,10,0.99)');
+    gr.addColorStop(.75, 'rgba(38,16,14,0.98)');
+    gr.addColorStop(1,   'rgba(72,30,26,0.96)');
     ctx.fillStyle = gr;
     ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
 
+    /* escurecimento nos cantos */
     [-1, 1].forEach(sgn => {
       const ccx = cx + sgn * halfW * .82, ccy = (yTopC + yBotC) / 2;
-      const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30;
-      cg.addColorStop(0, 'rgba(12,6,6,0.55';
-      cg.addColorStop(1, 'rgba(12,6,6,0';
+      const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30);
+      cg.addColorStop(0, 'rgba(12,6,6,0.55)');
+      cg.addColorStop(1, 'rgba(12,6,6,0)');
       ctx.fillStyle = cg;
       ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
     });
 
-    /* ═══ DENTES v6 — arco de tamanho NATURAL que segue a boca ═══ */
+    /* ═══ DENTES v6 — arco de tamanho NATURAL que segue a boca ═══
+       O arco não escala com a abertura (dentes não crescem quando
+       você abre a boca): altura ~2.2% do rosto, com teto da
+       cavidade. O que anima é o vão escuro ABAIXO do arco — a
+       distância dente→lábio inferior respira com a fala.          */
     if (open > .16){
       const cavH = yBotC - yTopC;
-      const teethNatural = rp.box.h * .022;
-      const teethH = Math.min(teethNatural, cavH * .65);
+      const teethNatural = rp.box.h * .022;                   // altura real do arco (~2.2% do rosto)
+      const teethH = Math.min(teethNatural, cavH * .65);      // revelado proporcionalmente
       if (teethH >= 2.5){
-        const teethA = clamp01((open - .16) / .10);
-        const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7;
+        const teethA = clamp01((open - .16) / .10);           // fade-in gradual
+        const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7);
 
+        /* faixa do arco — segue a curva do lábio superior */
         const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
-        tg.addColorStop(0,   'rgba(242,240,234,0.90';
-        tg.addColorStop(.62, 'rgba(240,236,228,0.60';
-        tg.addColorStop(1,   'rgba(238,234,226,0.12';
+        tg.addColorStop(0,   'rgba(242,240,234,0.90)');
+        tg.addColorStop(.62, 'rgba(240,236,228,0.60)');
+        tg.addColorStop(1,   'rgba(238,234,226,0.12)');
         ctx.globalAlpha = aIn * teethA;
         ctx.fillStyle = tg;
         ctx.beginPath();
-        ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80);
+        ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80));
         for (let i = 0; i <= 12; i++){
           const t = -.80 + 1.6 * i / 12;
-          ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW);
+          ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW));
         }
         for (let i = 12; i >= 0; i--){
           const t = -.80 + 1.6 * i / 12;
@@ -2807,13 +2830,14 @@ const FaceForge = (() => {
         ctx.closePath();
         ctx.fill();
 
-        ctx.strokeStyle = 'rgba(20,10,9,0.35';
-        ctx.lineWidth = Math.max(.8, rp.box.w * .0018;
+        /* separações interdentais — o arco lê como dentes individuais */
+        ctx.strokeStyle = 'rgba(20,10,9,0.35)';
+        ctx.lineWidth = Math.max(.8, rp.box.w * .0018);
         for (let k = 0; k < 5; k++){
-          const t = -.60 + .30 * k;
+          const t = -.60 + .30 * k;                            // 5 separações: 6 dentes
           const x = cx + t * halfW;
           const y0 = topAt(x) + 1;
-          const y1 = toothEdge(t) - Math.max(1, teethH * .12;
+          const y1 = toothEdge(t) - Math.max(1, teethH * .12);
           if (y1 - y0 > 2){
             ctx.beginPath();
             ctx.moveTo(x, y0);
@@ -2822,8 +2846,9 @@ const FaceForge = (() => {
           }
         }
 
-        ctx.strokeStyle = 'rgba(15,7,7,0.55';
-        ctx.lineWidth = Math.max(1, rp.box.w * .002;
+        /* sombra definindo a borda inferior do arco */
+        ctx.strokeStyle = 'rgba(15,7,7,0.55)';
+        ctx.lineWidth = Math.max(1, rp.box.w * .002);
         ctx.beginPath();
         for (let i = 0; i <= 12; i++){
           const t = -.80 + 1.6 * i / 12;
@@ -2831,35 +2856,37 @@ const FaceForge = (() => {
           i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
         }
         ctx.stroke();
-        ctx.globalAlpha = aIn;
+        ctx.globalAlpha = aIn;                                // restaura p/ língua
       }
     }
 
+    /* LÍNGUA — forma DEFINIDA com sulco central (aberturas grandes) */
     if (open > .42){
       const hgt = yBotC - yTopC;
       const tcy = yBotC - hgt * .24;
-      const tw = halfW * .58, th = Math.max(3, hgt * .26;
-      const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw;
-      lg.addColorStop(0,   'rgba(148,64,62,0.75';
-      lg.addColorStop(.55, 'rgba(112,44,44,0.72';
-      lg.addColorStop(1,   'rgba(84,32,32,0';
+      const tw = halfW * .58, th = Math.max(3, hgt * .26);
+      const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw);
+      lg.addColorStop(0,   'rgba(148,64,62,0.75)');
+      lg.addColorStop(.55, 'rgba(112,44,44,0.72)');
+      lg.addColorStop(1,   'rgba(84,32,32,0)');
       ctx.fillStyle = lg;
       ctx.beginPath();
       ctx.ellipse(cx, tcy, tw, th, 0, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(70,26,26,0.55;
-      ctx.lineWidth = Math.max(1, rp.box.w * .0025;
+      ctx.strokeStyle = 'rgba(70,26,26,0.55)';
+      ctx.lineWidth = Math.max(1, rp.box.w * .0025);
       ctx.beginPath();
       ctx.moveTo(cx - tw * .5, tcy);
       ctx.quadraticCurveTo(cx, tcy + th * .35, cx + tw * .5, tcy);
       ctx.stroke();
     }
-    ctx.restore();
+    ctx.restore();  /* unclip + alpha */
 
+    /* linha do lábio superior (borda superior NÍTIDA) */
     ctx.save();
     ctx.globalAlpha = aIn * .45;
-    ctx.strokeStyle = 'rgba(30,13,11,1';
-    ctx.lineWidth = Math.max(1.2, rp.box.w * .0035;
+    ctx.strokeStyle = 'rgba(30,13,11,1)';
+    ctx.lineWidth = Math.max(1.2, rp.box.w * .0035);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(topPts[0].x, topPts[0].y);
@@ -2867,26 +2894,28 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
+    /* wet-line: brilho da mucosa do lábio inferior */
     ctx.save();
     ctx.globalAlpha = aIn * .30;
-    ctx.strokeStyle = 'rgba(255,238,228,1';
-    ctx.lineWidth = Math.max(1, rp.box.w * .0028;
+    ctx.strokeStyle = 'rgba(255,238,228,1)';
+    ctx.lineWidth = Math.max(1, rp.box.w * .0028);
     ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.moveTo(botPts[0].x, botPts[0].y - 1;
+    ctx.moveTo(botPts[0].x, botPts[0].y - 1);
     for (let i = 1; i <= N; i++) ctx.lineTo(botPts[i].x, botPts[i].y - 1);
     ctx.stroke();
     ctx.restore();
 
+    /* sombra sob o lábio inferior */
     const d17 = dispAt(g.lowerLip.x, g.lowerLip.y);
     ctx.save();
     ctx.globalAlpha = aIn * .45;
-    const sg = ctx.createRadialGradient(cx, d17.y, 1, cx, d17.y, halfW * .55;
-    sg.addColorStop(0, 'rgba(58,28,22,0.30';
-    sg.addColorStop(1, 'rgba(58,28,22,0';
+    const sg = ctx.createRadialGradient(cx, d17.y, 1, cx, d17.y, halfW * .55);
+    sg.addColorStop(0, 'rgba(58,28,22,0.30)');
+    sg.addColorStop(1, 'rgba(58,28,22,0)');
     ctx.fillStyle = sg;
-    ctx.translate(cx, d17.y;
-    ctx.scale(1, .32;
+    ctx.translate(cx, d17.y);
+    ctx.scale(1, .32);
     ctx.beginPath(); ctx.arc(0, 0, halfW * .55, 0, TAU); ctx.fill();
     ctx.restore();
 
@@ -2894,13 +2923,14 @@ const FaceForge = (() => {
     rp.dCR = dispAt(g.cornerR.x, g.cornerR.y);
   }
 
+  /* sombreamento esfumado (sulcos) */
   function foldShadow(x0, y0, qx, qy, x1, y1, alpha, width){
     ctx.save();
     ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(72,42,32,' + (alpha * .45).toFixed(3);
+    ctx.strokeStyle = 'rgba(72,42,32,' + (alpha * .45).toFixed(3) + ')';
     ctx.lineWidth = width * 2.4;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(qx, qy, x1, y1); ctx.stroke();
-    ctx.strokeStyle = 'rgba(72,42,32,' + alpha.toFixed(3);
+    ctx.strokeStyle = 'rgba(72,42,32,' + alpha.toFixed(3) + ')';
     ctx.lineWidth = width;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(qx, qy, x1, y1); ctx.stroke();
     ctx.restore();
@@ -2910,29 +2940,29 @@ const FaceForge = (() => {
     if (s > 0.22){
       const cLp = rp.dCL || dispAt(g.cornerL.x, g.cornerL.y);
       const cRp = rp.dCR || dispAt(g.cornerR.x, g.cornerR.y);
-      const a = Math.min(.11, s * .13;
+      const a = Math.min(.11, s * .13);
       foldShadow(
         g.mouth.x - g.mouthW * .26, g.mouth.y - b.h * .10,
         cLp.x - b.w * .015, (g.mouth.y + cLp.y) / 2 - b.h * .03,
         cLp.x - b.w * .008, cLp.y - b.h * .004,
-        Math.min(.13, a * (1 + rp.asym * .4)), Math.max(1, b.w * .011;
+        Math.min(.13, a * (1 + rp.asym * .4)), Math.max(1, b.w * .011));
       foldShadow(
         g.mouth.x + g.mouthW * .26, g.mouth.y - b.h * .10,
         cRp.x + b.w * .015, (g.mouth.y + cRp.y) / 2 - b.h * .03,
         cRp.x + b.w * .008, cRp.y - b.h * .004,
-        Math.min(.13, a * (1 - rp.asym * .4)), Math.max(1, b.w * .011;
+        Math.min(.13, a * (1 - rp.asym * .4)), Math.max(1, b.w * .011));
     }
     if (s > 0.32){
-      const a = Math.min(.09, (s - .3) * .12;
+      const a = Math.min(.09, (s - .3) * .12);
       ctx.save();
       ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(76,48,38,' + a.toFixed(3;
-      ctx.lineWidth = Math.max(1, b.w * .007;
-      [[g.outL, -1], [g.outR, 1]].forEach(([o, sgn] => {
+      ctx.strokeStyle = 'rgba(76,48,38,' + a.toFixed(3) + ')';
+      ctx.lineWidth = Math.max(1, b.w * .007);
+      [[g.outL, -1], [g.outR, 1]].forEach(([o, sgn]) => {
         for (let k = -1; k <= 1; k += 2){
           ctx.beginPath();
-          ctx.moveTo(o.x + sgn * b.w * .004, o.y + k * b.h * .004;
-          ctx.lineTo(o.x + sgn * b.w * .030, o.y + k * b.h * .011 - b.h * .004;
+          ctx.moveTo(o.x + sgn * b.w * .004, o.y + k * b.h * .004);
+          ctx.lineTo(o.x + sgn * b.w * .030, o.y + k * b.h * .011 - b.h * .004);
           ctx.stroke();
         }
       });
@@ -2943,109 +2973,112 @@ const FaceForge = (() => {
   function clearFx(){
     fx.puppet = fx.swap = fx.smooth = fx.glitch = false;
     maskCv = null;
-    fxBtns.forEach(b => b.classList.remove('on');
+    fxBtns.forEach(b => b.classList.remove('on'));
   }
 
   function releaseCamera(){
-    if (stream){ stream.getTracks().forEach(t => t.stop(); } stream = null; }
+    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
     video.srcObject = null;
     lm = null;
   }
 
+  /* ── modo ao vivo (webcam) ── */
   async function start(){
     if (mode === 'photo'){ photoCv = null; photoName = ''; MESH.sig = ''; headSig = ''; }
     clearFx();
     rv.on = false;
-    $reviveBtn.classList.remove('on';
+    $reviveBtn.classList.remove('on');
     if (rv.voice) stopVoiceDrive();
-    moodBtns.forEach(b => b.disabled = true;
+    moodBtns.forEach(b => b.disabled = true);
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, audio: false };
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 } }, audio: false });
     } catch (e){
-      setSt('câmera negada';
+      setSt('câmera negada');
       $ro.textContent = 'acesso à câmera negado ou indisponível — ' + e.name + ' · use o modo foto como alternativa';
       return;
     }
     video.srcObject = stream;
     await video.play().catch(() => {});
     let tries = 0;
-    while (!video.videoWidth && tries++ < 50) await sleep(100;
+    while (!video.videoWidth && tries++ < 50) await sleep(100);
     W = cvs.width = video.videoWidth || 640;
-    H = cvs.height = videoHeight || 480;
+    H = cvs.height = video.videoHeight || 480;
     mode = 'live';
     empty.hidden = true;
     $('#ffStart').disabled = true;
-    fxBtns.forEach(b => b.disabled = false;
+    fxBtns.forEach(b => b.disabled = false);
     btnPuppet.disabled = fmState !== 'on';
     $reviveBtn.disabled = true;
     $voiceBtn.disabled = true;
-    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false;
-    setSt('câmera ativa';
+    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
+    setSt('câmera ativa');
     $ro.textContent = 'câmera ativa — ative efeitos e combine-os. O quadro abaixo é o pipeline ao vivo.';
     running = true;
     loop();
     loadMesh();
   }
 
+  /* ── modo foto (still) ── */
   async function loadPhoto(){
     const f = $photoIn.files && $photoIn.files[0];
     $photoIn.value = '';
     if (!f) return;
-    const ext = extOf(f.name || '';
-    const ok = (f.type && f.type.startsWith('image/')) || ['jpg','jpeg','png','webp','gif','bmp'].includes(ext;
+    const ext = extOf(f.name || '');
+    const ok = (f.type && f.type.startsWith('image/')) || ['jpg','jpeg','png','webp','gif','bmp'].includes(ext);
     if (!ok){ $ro.textContent = '"' + f.name + '" não parece ser uma imagem'; return; }
     try {
-      const url = URL.createObjectURL(f;
+      const url = URL.createObjectURL(f);
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
       const cap = 1280;
-      const sc = Math.min(1, cap / Math.max(img.naturalWidth, img.naturalHeight);
-      W = Math.max(2, Math.round(img.naturalWidth * sc;
-      H = Math.max(2, Math.round(img.naturalHeight * sc;
-      photoCv = document.createElement('canvas';
+      const sc = Math.min(1, cap / Math.max(img.naturalWidth, img.naturalHeight));
+      W = Math.max(2, Math.round(img.naturalWidth * sc));
+      H = Math.max(2, Math.round(img.naturalHeight * sc));
+      photoCv = document.createElement('canvas');
       photoCv.width = W; photoCv.height = H;
-      const pc = photoCv.getContext('2d', { willReadFrequently: true };
+      const pc = photoCv.getContext('2d', { willReadFrequently: true });
       pc.imageSmoothingEnabled = true;
       pc.imageSmoothingQuality = 'high';
-      pc.drawImage(img, 0, 0, W, H;
-      URL.revokeObjectURL(url;
+      pc.drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
     } catch (e){
       $ro.textContent = 'falha ao decodificar a imagem — ' + e.message;
       return;
     }
     workCv.width = W; workCv.height = H;
-    wctx = workCv.getContext('2d';
+    wctx = workCv.getContext('2d');
     wctx.imageSmoothingEnabled = true;
     wctx.imageSmoothingQuality = 'high';
     releaseCamera();
     clearFx();
     MESH.sig = ''; headSig = '';
     rv.on = false;
-    $reviveBtn.classList.remove('on';
+    $reviveBtn.classList.remove('on');
     if (rv.voice) stopVoiceDrive();
     photoName = f.name;
     mode = 'photo';
     empty.hidden = true;
     $('#ffStart').disabled = false;
-    fxBtns.forEach(b => b.disabled = false;
+    fxBtns.forEach(b => b.disabled = false);
     btnPuppet.disabled = true;
     $reviveBtn.disabled = false;
     $voiceBtn.disabled = false;
-    moodBtns.forEach(b => b.disabled = false;
-    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false;
-    setSt('foto carregada';
+    moodBtns.forEach(b => b.disabled = false);
+    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
+    setSt('foto carregada');
     $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
       'Clique em <b>reviver</b>: boca alinhada ao rosto, com arco dental de tamanho natural — ' +
       'os dentes mantêm sua altura e o vão escuro abaixo deles cresce com a fala. Ative o driver de voz para seguir a sua fala.';
-    Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok';
+    Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
     running = true;
     loop();
     loadMesh();
   }
 
+  /* ── REVIVER: liga/desliga ── */
   function toggleRevive(){
     if (mode !== 'photo' || !photoCv) return;
     rv.on = !rv.on;
-    $reviveBtn.classList.toggle('on', rv.on;
+    $reviveBtn.classList.toggle('on', rv.on);
     if (rv.on){
       rv.t0 = performance.now();
       rv.lastT = 0;
@@ -3055,90 +3088,92 @@ const FaceForge = (() => {
       rv.nextMood = 1.5; rv.nextFlash = 3 + Math.random() * 4;
       rv.nextTwitch = 4 + Math.random() * 5;
       rv.emph = 0; rv.nod = 0; rv.hfX = 0; rv.velH = 0;
-      setSt(rv.voice ? 'foto animada (voz' : 'foto animada';
+      setSt(rv.voice ? 'foto animada (voz)' : 'foto animada');
       $ro.innerHTML = 'reencenação ATIVA — boca v6: arco dental de altura natural preso à maxila; ' +
         'o que anima é o vão escuro entre a borda dos dentes e o lábio inferior. Os dentes seguem a boca. ' +
         'Grave o clipe e envie ao detector.';
-      Terminal.log('[FORGE::FACE] reencenação v9 ativada (boca v6: arco dental de tamanho natural · vão escuro anima', 'ok';
+      Terminal.log('[FORGE::FACE] reencenação v9 ativada (boca v6: arco dental de tamanho natural · vão escuro anima)', 'ok');
     } else {
-      setSt(rv.voice ? 'foto animada (voz' : 'foto carregada';
+      setSt(rv.voice ? 'foto animada (voz)' : 'foto carregada');
       $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
-      Terminal.log('[FORGE::FACE] reencenação pausada', 'plain';
+      Terminal.log('[FORGE::FACE] reencenação pausada', 'plain');
     }
   }
 
+  /* ── REVIVER: driver pela voz ── */
   async function toggleVoiceDrive(){
     if (rv.voice){ stopVoiceDrive(); return; }
     if (mode !== 'photo' || !photoCv) return;
     try {
       rv.micStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
-      };
+      });
     } catch (e){
-      $ro.textContent = 'microfone negado — ' + e.name + ' (o driver procedural continua disponível';
+      $ro.textContent = 'microfone negado — ' + e.name + ' (o driver procedural continua disponível)';
       return;
     }
     const Ctx = window.AudioContext || window.webkitAudioContext;
     rv.ac = new Ctx();
-    const src = rv.ac.createMediaStreamSource(rv.micStream;
+    const src = rv.ac.createMediaStreamSource(rv.micStream);
     rv.analyser = rv.ac.createAnalyser();
     rv.analyser.fftSize = 512;
-    src.connect(rv.analyser;
+    src.connect(rv.analyser);
     rv.voice = true;
-    $voiceBtn.classList.add('on';
+    $voiceBtn.classList.add('on');
     if (!rv.on) toggleRevive();
-    setSt('foto animada (voz';
+    setSt('foto animada (voz)');
     $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca abre e fecha seguindo a sua fala ' +
       '(mapeamento compressivo; transientes → ênfase). Grave o clipe: sai <b>com a sua trilha</b> ' +
       'para a bancada analisar vídeo + áudio de uma vez.';
-    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS compressivo dirige a abertura; transientes → ênfase', 'ok';
+    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS compressivo dirige a abertura; transientes → ênfase', 'ok');
   }
   function stopVoiceDrive(){
     rv.voice = false;
     rv.analyser = null; rv.tbuf = null; rv.fbuf = null; rv.prevRms = 0;
-    if (rv.micStream){ rv.micStream.getTracks().forEach(t => t.stop(); } rv.micStream = null; }
+    if (rv.micStream){ rv.micStream.getTracks().forEach(t => t.stop()); rv.micStream = null; }
     if (rv.ac){ try { rv.ac.close(); } catch {} rv.ac = null; }
-    $voiceBtn.classList.remove('on';
-    if (rv.on) setSt('foto animada';
-    Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain';
+    $voiceBtn.classList.remove('on');
+    if (rv.on) setSt('foto animada');
+    Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain');
   }
 
+  /* ── tracking ── */
   async function meshOnce(){
-    try { await fm.send({ image: mode === 'photo' ? photoCv : video }; } catch {}
+    try { await fm.send({ image: mode === 'photo' ? photoCv : video }); } catch {}
   }
   async function loadMesh(){
-    if (fmState === 'on'{ await meshOnce(); return; }
+    if (fmState === 'on'){ await meshOnce(); return; }
     if (fmState === 'loading') return;
-    fmState = 'loading'; setSt('carregando tracking…';
+    fmState = 'loading'; setSt('carregando tracking…');
     try {
       await new Promise((res, rej) => {
         if (self.FaceMesh) return res();
-        const s = document.createElement('script';
+        const s = document.createElement('script');
         s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
         s.onload = res;
-        s.onerror = () => rej(new Error('CDN indisponível';
-        document.head.appendChild(s;
-        setTimeout(() => rej(new Error('timeout')), 15000;
+        s.onerror = () => rej(new Error('CDN indisponível'));
+        document.head.appendChild(s);
+        setTimeout(() => rej(new Error('timeout')), 15000);
       });
-      fm = new self.FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f };
-      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: .5, minTrackingConfidence: .5 };
-      fm.onResults(r => { lm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; };
+      fm = new self.FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
+      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: .5, minTrackingConfidence: .5 });
+      fm.onResults(r => { lm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; });
       fmState = 'on';
-      setSt(rv.on ? (rv.voice ? 'foto animada (voz' : 'foto animada' : (mode === 'live' ? 'tracking ativo (478 pts' : 'foto carregada';
+      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'live' ? 'tracking ativo (478 pts)' : 'foto carregada'));
       if (mode === 'live') btnPuppet.disabled = false;
       meshLoop();
     } catch (e){
       fmState = 'fail';
-      setSt('tracking indisponível';
+      setSt('tracking indisponível');
       btnPuppet.disabled = true;
-      $ro.textContent = 'MediaPipe indisponível (CDN offline? — a reencenação usa proporções estimadas da face (sem olhar por íris; marionete desabilitada.';
+      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — a reencenação usa proporções estimadas da face (sem olhar por íris); marionete desabilitada.';
     }
   }
   async function meshLoop(){
     while (fmState === 'on' && running){
       if (mode === 'photo'){ await meshOnce(); break; }
-      try { await fm.send({ image: video }; } catch { break; }
-      await sleep(30;
+      try { await fm.send({ image: video }); } catch { break; }
+      await sleep(30);
     }
   }
 
@@ -3147,33 +3182,34 @@ const FaceForge = (() => {
   function driveMouth(t, dt){
     let tgtM = .04, tgtW = 0;
     if (rv.voice && rv.analyser){
-      if (!rv.tbuf){ rv.tbuf = new Uint8Array(rv.analyser.fftSize; rv.fbuf = new Uint8Array(rv.analyser.frequencyBinCount; }
-      rv.analyser.getByteTimeDomainData(rv.tbuf;
+      if (!rv.tbuf){ rv.tbuf = new Uint8Array(rv.analyser.fftSize); rv.fbuf = new Uint8Array(rv.analyser.frequencyBinCount); }
+      rv.analyser.getByteTimeDomainData(rv.tbuf);
       let s = 0;
       for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
-      const rms = Math.sqrt(s / rv.tbuf.length;
-      tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8;
-      rv.analyser.getByteFrequencyData(rv.fbuf;
+      const rms = Math.sqrt(s / rv.tbuf.length);
+      tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8));
+      rv.analyser.getByteFrequencyData(rv.fbuf);
       let num = 0, den = 0;
       const bins = rv.fbuf.length, nyq = rv.ac.sampleRate / 2;
       for (let i = 2; i < bins; i++){ const f = i * nyq / bins; num += f * rv.fbuf[i]; den += rv.fbuf[i]; }
       const cent = den > 0 ? num / den : 1500;
-      const wide = Math.max(-.4, Math.min(.8, (cent - 1400) / 2300;
+      const wide = Math.max(-.4, Math.min(.8, (cent - 1400) / 2300));
       tgtW = rms > .02 ? wide : 0;
       const d = rms - rv.prevRms;
       rv.prevRms = rms * .65 + rv.prevRms * .35;
       if (d > .018){
-        rv.emph = Math.min(1, rv.emph + d * 9;
-        rv.nod = Math.max(rv.nod, Math.min(1, d * 10;
+        rv.emph = Math.min(1, rv.emph + d * 9);
+        rv.nod = Math.max(rv.nod, Math.min(1, d * 10));
       }
     } else {
       if ((!rv.syls || t >= rv.sylsEnd) && t >= rv.restUntil){
-        const n = 2 + Math.floor(Math.random() * 5;
+        const n = 2 + Math.floor(Math.random() * 5);
         rv.syls = []; rv.si = 0; rv.hitSi = -1;
         let tt = t + .02;
         for (let i = 0; i < n; i++){
           const dur = .12 + Math.random() * .18, gap = .02 + Math.random() * .07;
-          rv.syls.push({ t0: tt, t1: tt + dur, amp: .25 + Math.random() * .55, wide: -.35 + Math.random() * .85 };
+          rv.syls.push({ t0: tt, t1: tt + dur, amp: .25 + Math.random() * .55, wide: -.35 + Math.random() * .85 });
+          tt += dur + gap;
         }
         rv.sylsEnd = rv.syls[n - 1].t1;
         rv.restUntil = rv.sylsEnd + .35 + Math.random() * 1.15;
@@ -3183,16 +3219,16 @@ const FaceForge = (() => {
         if (s && t >= s.t0){
           if (rv.hitSi !== rv.si){
             rv.hitSi = rv.si;
-            rv.emph = Math.min(1, rv.emph + s.amp * .5;
-            rv.nod = Math.max(rv.nod, s.amp * .45;
+            rv.emph = Math.min(1, rv.emph + s.amp * .5);
+            rv.nod = Math.max(rv.nod, s.amp * .45);
           }
           rv.si++;
         }
         const a = rv.syls[rv.si - 1];
         if (a && t <= a.t1){
-          const p = Math.min(1, Math.max(0, (t - a.t0) / (a.t1 - a.t0);
-          const env = Math.sin(Math.PI * p;
-        tg            |            tM = Math.max(.05, a.amp * env;
+          const p = Math.min(1, Math.max(0, (t - a.t0) / (a.t1 - a.t0)));
+          const env = Math.sin(Math.PI * p);
+          tgtM = Math.max(.05, a.amp * env);
           tgtW = a.wide * env;
         }
         else if (a && rv.si < rv.syls.length){
@@ -3204,11 +3240,11 @@ const FaceForge = (() => {
     const opening = tgtM > rv.mouth;
     let v = rv.velM + (tgtM - rv.mouth) * (opening ? 620 : 430) * dt;
     v *= Math.exp(-(opening ? 24 : 27) * dt);
-    rv.velM = v; rv.mouth = Math.min(1, Math.max(.02, rv.mouth + v * dt);
-    v = rv.velW + (tgtW - rv.width) * 150 * dt; v *= Math.exp(-17 * dt;
+    rv.velM = v; rv.mouth = Math.min(1, Math.max(.02, rv.mouth + v * dt));
+    v = rv.velW + (tgtW - rv.width) * 150 * dt; v *= Math.exp(-17 * dt);
     rv.velW = v; rv.width += v * dt;
-    rv.emph *= Math.exp(-dt * 5;
-    rv.nod *= Math.exp(-dt * 5.5;
+    rv.emph *= Math.exp(-dt * 5);
+    rv.nod *= Math.exp(-dt * 5.5);
   }
 
   function driveEmotion(t, dt){
@@ -3216,7 +3252,7 @@ const FaceForge = (() => {
       rv.nextMood = t + 3 + Math.random() * 4.5;
       if (rv.moodPreset === 'auto'){
         const pool = ['neutro','neutro','sorriso','neutro','serio','sorriso','surpresa','neutro','neutro'];
-        const m = { ...MOODS[pool[Math.floor(Math.random() * pool.length]] };
+        const m = { ...MOODS[pool[Math.floor(Math.random() * pool.length)]] };
         m.smile *= .45 + Math.random() * .55;
         m.brow  *= .6 + Math.random() * .4;
         rv.tgt = m;
@@ -3236,15 +3272,15 @@ const FaceForge = (() => {
     }
     const tp = (t - rv.twitchT) / .45;
     rv.twitch = (tp >= 0 && tp <= 1) ? Math.sin(Math.PI * tp) : 0;
-    const k = 1 - Math.exp(-dt * 1.6;
+    const k = 1 - Math.exp(-dt * 1.6);
     const drift = {
       smile: .05 * Math.sin(TAU * .07 * t + 1.3),
       brow:  .05 * Math.sin(TAU * .05 * t + .4),
       squint:.03 * Math.sin(TAU * .06 * t + 2.1)
     };
     for (const key in rv.tgt){
-      const want = (rv.tgt[key] || 0) + (drift[key] || 0;
-      rv.cur[key] = (rv.cur[key] || 0) + (want - (rv.cur[key] || 0) * k;
+      const want = (rv.tgt[key] || 0) + (drift[key] || 0);
+      rv.cur[key] = (rv.cur[key] || 0) + (want - (rv.cur[key] || 0)) * k;
     }
   }
 
@@ -3253,17 +3289,17 @@ const FaceForge = (() => {
       rv.nextSac = t + .35 + Math.random() * 2.2;
       const big = Math.random() < .15;
       const talk = rv.mouth > .12;
-      rv.gazeTX = (Math.random() * 2 - 1) * (talk ? .3 : (big ? .9 : .45);
+      rv.gazeTX = (Math.random() * 2 - 1) * (talk ? .3 : (big ? .9 : .45));
       rv.gazeTY = (Math.random() * 2 - 1) * .2;
       rv.sacT = t; rv.sacDur = .08 + Math.random() * .07;
       if (big && Math.random() < .3) rv.nextBlink = t;
     }
-    const p = Math.min(1, (t - rv.sacT) / rv.sacDur;
-    const e = 1 - Math.pow(1 - p, 3;
-    rv.gazeX = rv.gazeTX * e + .05 * Math.sin(TAU * .31 * t + 1;
+    const p = Math.min(1, (t - rv.sacT) / rv.sacDur);
+    const e = 1 - Math.pow(1 - p, 3);
+    rv.gazeX = rv.gazeTX * e + .05 * Math.sin(TAU * .31 * t + 1);
     rv.gazeY = rv.gazeTY * e;
     const want = Math.abs(rv.gazeTX) > .45 ? rv.gazeTX * .7 : 0;
-    let v = rv.velH + (want - rv.hfX) * 5 * dt; v *= Math.exp(-7 * dt;
+    let v = rv.velH + (want - rv.hfX) * 5 * dt; v *= Math.exp(-7 * dt);
     rv.velH = v; rv.hfX += v * dt;
   }
 
@@ -3272,80 +3308,82 @@ const FaceForge = (() => {
       rv.blinkStart = t;
       rv.blinkDur = .12 + Math.random() * .08;
       const dbl = Math.random() < .15;
-      rv.nextBlink = t + (dbl ? .28 : 1.4 + Math.random() * 3.2) + (rv.mouth > .2 ? -.35 : 0;
+      rv.nextBlink = t + (dbl ? .28 : 1.4 + Math.random() * 3.2) + (rv.mouth > .2 ? -.35 : 0);
     }
     const bp = (t - rv.blinkStart) / rv.blinkDur;
     rv.blink = (bp >= 0 && bp <= 1) ? Math.sin(Math.PI * bp) : 0;
   }
 
+  /* um frame do REVIVER */
   function drawRevive(box){
     if (!radial.width) buildRadial();
     if (!wctx) return;
-    const g = faceGeom(box;
-    buildMesh(g;
-    buildHeadMask(g;
+    const g = faceGeom(box);
+    buildMesh(g);
+    buildHeadMask(g);
     const t = (performance.now() - rv.t0) / 1000;
-    const dt = Math.min(.05, Math.max(0, t - rv.lastT;
+    const dt = Math.min(.05, Math.max(0, t - rv.lastT));
     rv.lastT = t;
 
-    driveMouth(t, dt;
-    driveEmotion(t, dt;
-    driveGaze(t, dt;
-    driveBlink(t;
-    computeHeadT(box, t;
+    driveMouth(t, dt);
+    driveEmotion(t, dt);
+    driveGaze(t, dt);
+    driveBlink(t);
+    computeHeadT(box, t);
 
-    wctx.drawImage(photoCv, 0, 0;
-    drawGazeInto(wctx, g;
+    wctx.drawImage(photoCv, 0, 0);
+    drawGazeInto(wctx, g);
 
-    drawHeadLayer(box;
-    computeRig(g;
+    drawHeadLayer(box);
+    computeRig(g);
     renderMesh();
 
-    applyHeadT(ctx;
-    drawLidFlaps(g;
-    drawMouthInterior(g;
-    drawShadows(g;
+    applyHeadT(ctx);
+    drawLidFlaps(g);
+    drawMouthInterior(g);
+    drawShadows(g);
     ctx.restore();
   }
 
+  /* ── efeitos (live e photo) ── */
   function smoothFace(box, src){
     const fw = box.w * 1.18, fh = box.h * 1.18;
     const fx0 = box.cx - fw / 2, fy0 = box.cy - fh / 2;
-    tiny.width = Math.max(8, fw / 9 | 0;
-    tiny.height = Math.max(8, fh / 9 | 0;
-    tiny.getContext('2d'.drawImage(src, fx0, fy0, fw, fh, 0, 0, tiny.width, tiny.height;
+    tiny.width = Math.max(8, fw / 9 | 0);
+    tiny.height = Math.max(8, fh / 9 | 0);
+    tiny.getContext('2d').drawImage(src, fx0, fy0, fw, fh, 0, 0, tiny.width, tiny.height);
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(box.cx, box.cy, fw / 2, fh / 2, 0, 0, TAU;
+    ctx.ellipse(box.cx, box.cy, fw / 2, fh / 2, 0, 0, Math.PI * 2);
     ctx.clip();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(tiny, 0, 0, tiny.width, tiny.height, fx0, fy0, fw, fh;
+    ctx.drawImage(tiny, 0, 0, tiny.width, tiny.height, fx0, fy0, fw, fh);
     ctx.restore();
   }
 
   function puppet(box){
     const m13 = P(13), m14 = P(14);
-    const open = Math.min(1, dist(m13, m14) / (box.h * 0.12);
-    const mc = { x: (m13.x + m14.x) / 2, y: (m13.y + m14.y) / 2;
+    const open = Math.min(1, dist(m13, m14) / (box.h * 0.12));
+    const mc = { x: (m13.x + m14.x) / 2, y: (m13.y + m14.y) / 2 };
     const mw = box.w * 0.38, mh = box.h * 0.30;
     const s = 1 + open * 0.8;
     ctx.save();
-    ctx.translate(mc.x, mc.y; ctx.scale(s, s * 1.15;
-    ctx.drawImage(video, mc.x - mw/2, mc.y - mh/2, mw, mh, -mw/2, -mh/2, mw, mh;
+    ctx.translate(mc.x, mc.y); ctx.scale(s, s * 1.15);
+    ctx.drawImage(video, mc.x - mw/2, mc.y - mh/2, mw, mh, -mw/2, -mh/2, mw, mh);
     ctx.restore();
     const jb = { x: box.cx - box.w * 0.30, y: box.y + box.h * 0.55, w: box.w * 0.60, h: box.h * 0.42 };
     ctx.save();
-    ctx.translate(jb.x + jb.w / 2, jb.y; ctx.scale(1, 1 + open * 0.25;
-    ctx.drawImage(video, jb.x, jb.y, jb.w, jb.h, -jb.w/2, 0, jb.w, jb.h;
+    ctx.translate(jb.x + jb.w / 2, jb.y); ctx.scale(1, 1 + open * 0.25);
+    ctx.drawImage(video, jb.x, jb.y, jb.w, jb.h, -jb.w/2, 0, jb.w, jb.h);
     ctx.restore();
     [[33,133],[362,263]].forEach(pair => {
-      const a = P(pair[0]), b = P(pair[1];
-      const c = { x: (a.x + b.x / 2, y: (a.y + b.y) / 2 };
+      const a = P(pair[0]), b = P(pair[1]);
+      const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const ew = Math.abs(b.x - a.x) * 2.2, eh = ew * 0.8;
       ctx.save();
-      ctx.translate(c.x, c.y; ctx.scale(1.3, 1.3;
-      ctx.drawImage(video, c.x - ew/2, c.y - eh/2, ew, eh, -ew/2, -eh/2, ew, eh;
+      ctx.translate(c.x, c.y); ctx.scale(1.3, 1.3);
+      ctx.drawImage(video, c.x - ew/2, c.y - eh/2, ew, eh, -ew/2, -eh/2, ew, eh);
       ctx.restore();
     });
   }
@@ -3354,10 +3392,10 @@ const FaceForge = (() => {
     if (mode === 'photo'){
       if (!photoCv) return;
       const box = faceBox();
-      const s = Math.max(2, Math.round(box.w * 1.18), sh = Math.max(2, Math.round(box.h * 1.28);
-    mask            C v = document.createElement('canvas';
+      const s = Math.max(2, Math.round(box.w * 1.18)), sh = Math.max(2, Math.round(box.h * 1.28));
+      maskCv = document.createElement('canvas');
       maskCv.width = s; maskCv.height = sh;
-      maskCv.getContext('2d').drawImage(photoCv, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh;
+      maskCv.getContext('2d').drawImage(photoCv, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh);
       if (!radial.width) buildRadial();
       graft = {
         dx: (Math.random() - .5) * box.w * 0.08,
@@ -3366,89 +3404,105 @@ const FaceForge = (() => {
         rot: (Math.random() - .5) * 0.06
       };
       fx.swap = true;
-      btnSwap.classList.add('on';
-      setSt(rv.on ? 'foto animada' : 'enxerto gerado';
+      btnSwap.classList.add('on');
+      setSt(rv.on ? 'foto animada' : 'enxerto gerado');
       $ro.textContent = 'enxerto self-swap aplicado — escala ' + graft.s.toFixed(3) + ' · rotação ' +
-        (graft.rot * 57.3).toFixed(1) + '° · offset (' + graft.dx.toFixed(0) + ', ' + graft.dy.toFixed(0 +
+        (graft.rot * 57.3).toFixed(1) + '° · offset (' + graft.dx.toFixed(0) + ', ' + graft.dy.toFixed(0) +
         ') px. As bordas de blending são o alvo do ELA do detector.';
-      Terminal.log('[FORGE::FACE] enxerto gerado no modo foto (self-swap com micro-desalinhamento', 'ok';
+      Terminal.log('[FORGE::FACE] enxerto gerado no modo foto (self-swap com micro-desalinhamento)', 'ok');
       return;
     }
     const box = faceBox();
-    const s = Math.max(2, Math.round(box.w * 1.15), sh = Math.max(2, Math.round(box.h * 1.15);
-    maskCv = document.createElement('canvas';
+    const s = Math.max(2, Math.round(box.w * 1.15)), sh = Math.max(2, Math.round(box.h * 1.15));
+    maskCv = document.createElement('canvas');
     maskCv.width = s; maskCv.height = sh;
-    maskCv.getContext('2d'.drawImage(video, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh;
+    maskCv.getContext('2d').drawImage(video, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh);
     if (!radial.width) buildRadial();
     fx.swap = true;
-    btnSwap.classList.add('on';
-    setSt('máscara pronta';
+    btnSwap.classList.add('on');
+    setSt('máscara pronta');
     $ro.textContent = 'máscara congelada — a face capturada é re-projetada sobre o vídeo ao vivo, alinhada pela linha dos olhos, com feather radial.';
-    Terminal.log('[FORGE::FACE] máscara congelada — swap de self ativado (blending radial', 'ok';
+    Terminal.log('[FORGE::FACE] máscara congelada — swap de self ativado (blending radial)', 'ok');
   }
 
   function pasteMaskLive(box){
-    const ang = lm ? Math.atan2(P(362.y - P(133.y, P(362.x - P(133.x; 0;
+    const ang = lm ? Math.atan2(P(362).y - P(133).y, P(362).x - P(133).x) : 0;
     const MW = box.w * 1.22, MH = box.h * 1.28;
-    mtmp.width = Math.round(MW; mtmp.height = Math.round(MH;
-    const m = mtmp.getContext('2d';
-    m.clearRect(0, 0, MW, MH;
+    mtmp.width = Math.round(MW); mtmp.height = Math.round(MH);
+    const m = mtmp.getContext('2d');
+    m.clearRect(0, 0, MW, MH);
     m.globalAlpha = 0.96;
-    m.drawImage(maskCv, 0, 0, MW, MH;
+    m.drawImage(maskCv, 0, 0, MW, MH);
     m.globalAlpha = 1;
     m.globalCompositeOperation = 'destination-in';
-    m.drawImage(radial, 0, 0, MW, MH;
+    m.drawImage(radial, 0, 0, MW, MH);
     m.globalCompositeOperation = 'source-over';
     ctx.save();
-    ctx.translate(box.cx, box.cy;
-    ctx.rotate(ang;
-    ctx.drawImage(mtmp, -MW / 2, -MH / 2;
+    ctx.translate(box.cx, box.cy);
+    ctx.rotate(ang);
+    ctx.drawImage(mtmp, -MW / 2, -MH / 2);
     ctx.restore();
   }
 
   function pasteMaskPhoto(box){
     const MW = box.w * 1.18 * graft.s, MH = box.h * 1.28 * graft.s;
-    mtmp.width = Math.round(MW; mtmp.height = Math.round(MH;
-    const m = mtmp.getContext('2d';
-    m.clearRect(0, 0, MW, MH;
+    mtmp.width = Math.round(MW); mtmp.height = Math.round(MH);
+    const m = mtmp.getContext('2d');
+    m.clearRect(0, 0, MW, MH);
     m.globalAlpha = 0.96;
-    m.drawImage(maskCv, 0, 0, MW, MH;
+    m.drawImage(maskCv, 0, 0, MW, MH);
     m.globalAlpha = 1;
     m.globalCompositeOperation = 'destination-in';
-    m.drawImage(radial, 0, 0, MW, MH;
+    m.drawImage(radial, 0, 0, MW, MH);
     m.globalCompositeOperation = 'source-over';
-    const ang = lm ? Math.atan2(P(362.y - P(133.y, P(362.x - P(133.x; 0;
+    const ang = lm ? Math.atan2(P(362).y - P(133).y, P(362).x - P(133).x) : 0;
     ctx.save();
-    ctx.translate(box.cx + graft.dx, box.cy + graft.dy;
-    ctx.rotate(ang + graft.rot;
-    ctx.drawImage(mtmp, -MW / 2, -MH / 2;
+    ctx.translate(box.cx + graft.dx, box.cy + graft.dy);
+    ctx.rotate(ang + graft.rot);
+    ctx.drawImage(mtmp, -MW / 2, -MH / 2);
     ctx.restore();
   }
 
   function glitch(box, src){
     if (Math.random() < .45) return;
-    const n = 4 + (Math.random() * 6 | 0;
+    const n = 4 + (Math.random() * 6 | 0);
     for (let i = 0; i < n; i++){
-      const gw = box.w * (0.06 + Math.random() * 0.16, gh = box.h * (0.02 + Math.random() * 0.05;
-      const gx = box.x + Math.random() * (box.w - gw, gy = box.y + Math.random() * (box.h - gh;
+      const gw = box.w * (0.06 + Math.random() * 0.16), gh = box.h * (0.02 + Math.random() * 0.05);
+      const gx = box.x + Math.random() * (box.w - gw), gy = box.y + Math.random() * (box.h - gh);
       const dx = (Math.random() - .5) * box.w * 0.14, dy = (Math.random() - .5) * box.h * 0.04;
-      ctx.drawImage(src, gx, gy, gw, gh, gx + dx, gy + dy, gw, gh;
+      ctx.drawImage(src, gx, gy, gw, gh, gx + dx, gy + dy, gw, gh);
     }
+  }
+
+  /* marca d'água: todo quadro/clipe gerado pela FORGE sai identificado como sintético */
+  function watermark(){
+    const fs = Math.max(11, Math.round(W * 0.026));
+    ctx.save();
+    ctx.font = '700 ' + fs + 'px "JetBrains Mono", monospace';
+    ctx.textBaseline = 'bottom';
+    const txt = 'SINTÉTICO · SYNTH::DETECT FORGE';
+    const pad = Math.round(fs * 0.5);
+    const tw = ctx.measureText(txt).width;
+    ctx.fillStyle = 'rgba(8,12,9,.62)';
+    ctx.fillRect(pad - 4, H - pad - fs - 4, tw + 8, fs + 8);
+    ctx.fillStyle = 'rgba(255,95,86,.95)';
+    ctx.fillText(txt, pad, H - pad);
+    ctx.restore();
   }
 
   function hud(box){
     const c = 14;
-    ctx.strokeStyle = 'rgba(78,224,141,.65'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(78,224,141,.65)'; ctx.lineWidth = 1.5;
     [[box.x, box.y, 1, 1],[box.x + box.w, box.y, -1, 1],[box.x, box.y + box.h, 1, -1],[box.x + box.w, box.y + box.h, -1, -1]]
-      .forEach(([x, y, sx, sy] => {
+      .forEach(([x, y, sx, sy]) => {
         ctx.beginPath();
-        ctx.moveTo(x + sx * c, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * c;
+        ctx.moveTo(x + sx * c, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * c);
         ctx.stroke();
       });
     if (lm){
-      ctx.fillStyle = 'rgba(78,224,141,.5';
-      for (let i = 0; i < lm.length; i += 6
-        ctx.fillRect(lm[i].x * W, lm[i].y * H, 1.5, 1.5;
+      ctx.fillStyle = 'rgba(78,224,141,.5)';
+      for (let i = 0; i < lm.length; i += 6)
+        ctx.fillRect(lm[i].x * W, lm[i].y * H, 1.5, 1.5);
     }
   }
 
@@ -3457,115 +3511,117 @@ const FaceForge = (() => {
     if (!running) return;
     if (mode === 'photo' && !photoCv){ running = false; return; }
     const src = mode === 'photo' ? photoCv : video;
-    ctx.drawImage(src, 0, 0, W, H;
+    ctx.drawImage(src, 0, 0, W, H);
     const box = faceBox();
     if (mode === 'photo'){
-      if (rv.on) drawRevive(box;
-      if (fx.smooth) smoothFace(box, src;
-      if (fx.swap && maskCv) pasteMaskPhoto(box;
-      if (fx.glitch) glitch(box, src;
+      if (rv.on) drawRevive(box);
+      if (fx.smooth) smoothFace(box, src);
+      if (fx.swap && maskCv) pasteMaskPhoto(box);
+      if (fx.glitch) glitch(box, src);
     } else {
-      if (fx.smooth) smoothFace(box, src;
-      if (fx.puppet && lm) puppet(box;
-      if (fx.swap && maskCv) pasteMaskLive(box;
-      if (fx.glitch) glitch(box, src;
+      if (fx.smooth) smoothFace(box, src);
+      if (fx.puppet && lm) puppet(box);
+      if (fx.swap && maskCv) pasteMaskLive(box);
+      if (fx.glitch) glitch(box, src);
     }
-    hud(box;
-    requestAnimationFrame(loop;
+    watermark();
+    hud(box);
+    requestAnimationFrame(loop);
   }
 
   /* ── capturas → artefatos ── */
   function shot(){
     cvs.toBlob(b => {
       if (!b) return;
-      const name = (mode === 'photo' ? 'forge_foto_' : 'forge_quadro_' + (++seq) + '.jpg';
-      ForgeArtifacts.add(b, name, 'image';
-      Terminal.log('[FORGE::FACE] quadro capturado: ' + name + ' (modo ' + mode + ')', 'ok';
-    }, 'image/jpeg', 0.92;
+      const name = (mode === 'photo' ? 'forge_foto_' : 'forge_quadro_') + (++seq) + '.jpg';
+      ForgeArtifacts.add(b, name, 'image');
+      Terminal.log('[FORGE::FACE] quadro capturado: ' + name + ' (modo ' + mode + ')', 'ok');
+    }, 'image/jpeg', 0.92);
   }
 
   function clip(){
     if (rec) return;
     const withAudio = rv.voice && rv.micStream && rv.micStream.getAudioTracks().length > 0;
     const mimes = withAudio
-      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'
-      : ['video/webm;codecs=vp9', 'video/webm', 'video/mp4';
-    const mime = mimes.find(m => MediaRecorder.isTypeSupported(m || '';
-    const s2 = cvs.captureStream(30;
+      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
+    const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+    const s2 = cvs.captureStream(30);
     const streamRec = withAudio
-      ? new MediaStream([...s2.getVideoTracks(), ...rv.micStream.getAudioTracks();
+      ? new MediaStream([...s2.getVideoTracks(), ...rv.micStream.getAudioTracks()])
       : s2;
-    rec = new MediaRecorder(streamRec, mime ? { mimeType: mime } : undefined;
+    rec = new MediaRecorder(streamRec, mime ? { mimeType: mime } : undefined);
     const parts = [];
-    rec.ondataavailable = e => e.data.size && parts.push(e.data;
+    rec.ondataavailable = e => e.data.size && parts.push(e.data);
     rec.onstop = () => {
-      const b = new Blob(parts, { type: rec.mimeType || 'video/webm' };
+      const b = new Blob(parts, { type: rec.mimeType || 'video/webm' });
       const name = 'forge_clipe_' + (++seq) + '.webm';
-      ForgeArtifacts.add(b, name, 'video';
-      Terminal.log('[FORGE::FACE] clipe gravado: ' + name + ' (' + fmtBytes(b.size + '' +
-                   (withAudio ? ' · com trilha de voz (deepfake completo: vídeo + áudio', 'ok';
+      ForgeArtifacts.add(b, name, 'video');
+      Terminal.log('[FORGE::FACE] clipe gravado: ' + name + ' (' + fmtBytes(b.size) + ')' +
+                   (withAudio ? ' · com trilha de voz (deepfake completo: vídeo + áudio)' : ''), 'ok');
       rec = null;
       $('#ffClip').disabled = false;
-      $('#ffClip').classList.remove('on';
-      setSt(rv.on ? (rv.voice ? 'foto animada (voz' : 'foto animada' : (mode === 'photo' ? 'foto carregada' : 'câmera ativa';
+      $('#ffClip').classList.remove('on');
+      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'photo' ? 'foto carregada' : 'câmera ativa'));
     };
     rec.start();
     $('#ffClip').disabled = true;
-    $('#ffClip').classList.add('on';
-    setSt('gravando clipe…';
-    setTimeout(() => { try { rec && rec.stop(); } catch {} }, 5000;
+    $('#ffClip').classList.add('on');
+    setSt('gravando clipe…');
+    setTimeout(() => { try { rec && rec.stop(); } catch {} }, 5000);
   }
 
   function init(){
-    $('#ffStart').addEventListener('click', start;
-    empty.addEventListener('click', start;
+    $('#ffStart').addEventListener('click', start);
+    empty.addEventListener('click', start);
     empty.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key == ' '){ e.preventDefault(); start(); }
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); start(); }
     });
     $consent.addEventListener('change', () => {
       $photoBtn.disabled = !$consent.checked;
       if (!$consent.checked) $ro.textContent = 'carregamento de foto liberado apenas com a confirmação de consentimento acima';
     });
-    $photoBtn.addEventListener('click', () => $photoIn.click();
-    $photoIn.addEventListener('change', loadPhoto;
-    $reviveBtn.addEventListener('click', toggleRevive;
-    $voiceBtn.addEventListener('click', toggleVoiceDrive;
+    $photoBtn.addEventListener('click', () => $photoIn.click());
+    $photoIn.addEventListener('change', loadPhoto);
+    $reviveBtn.addEventListener('click', toggleRevive);
+    $voiceBtn.addEventListener('click', toggleVoiceDrive);
 
     moodBtns.forEach(b => b.addEventListener('click', () => {
       if (b.disabled) return;
-      moodBtns.forEach(c => c.classList.toggle('on', c === b;
+      moodBtns.forEach(c => c.classList.toggle('on', c === b));
       rv.moodPreset = b.dataset.mood;
       rv.nextMood = 0;
-      Terminal.log('[FORGE::FACE] humor: ' + rv.moodPreset, 'plain';
-    });
+      Terminal.log('[FORGE::FACE] humor: ' + rv.moodPreset, 'plain');
+    }));
 
     fxBtns.forEach(b => b.addEventListener('click', () => {
       if (b.disabled) return;
       const k = b.dataset.fx;
-      if (k === 'swap' && !maskCv){ $ro.textContent = 'congele a máscara/enxerto primeiro (botão abaixo'; return; }
+      if (k === 'swap' && !maskCv){ $ro.textContent = 'congele a máscara/enxerto primeiro (botão abaixo)'; return; }
       fx[k] = !fx[k];
-      b.classList.toggle('on', fx[k];
-      Terminal.log('[FORGE::FACE] efeito ' + k + ' ' + (fx[k] ? 'ativado' : 'desativado' + ' (modo ' + mode + ')', 'plain';
+      b.classList.toggle('on', fx[k]);
+      Terminal.log('[FORGE::FACE] efeito ' + k + ' ' + (fx[k] ? 'ativado' : 'desativado') + ' (modo ' + mode + ')', 'plain');
     }));
-    $('#ffMask').addEventListener('click', freezeMask;
-    $('#ffShot').addEventListener('click', shot;
-    $('#ffClip').addEventListener('click', clip;
+    $('#ffMask').addEventListener('click', freezeMask);
+    $('#ffShot').addEventListener('click', shot);
+    $('#ffClip').addEventListener('click', clip);
   }
   return { init };
 })();
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    APP — orquestração da bancada de DETECÇÃO
-══════════════════════════════════════════════════════════════════ */
+   (+ submitBlob: a FORGE injeta artefatos direto no pipeline)
+════════════════════════════════════════════════════════════════ */
 const App = (() => {
-  const dz = $('#dropzone'), input = $('#fileInput';
-  const evidence = $('#evidence'), evPreview = $('#evPreview';
-  const evImg = $('#evImg'), evNo = $('#evNoPreview', evFacts = $('#evFacts';
-  const evMediaWrap = $('#evMediaWrap', evMedia = $('#evMedia';
-  const evVizWrap = $('#evVizWrap', evViz = $('#evViz';
-  const btnRescan = $('#btnRescan', btnReset = $('#btnReset';
-  const verdictEl = $('#verdict';
-  const modEls = $$('.mod';
+  const dz = $('#dropzone'), input = $('#fileInput');
+  const evidence = $('#evidence'), evPreview = $('#evPreview');
+  const evImg = $('#evImg'), evNo = $('#evNoPreview'), evFacts = $('#evFacts');
+  const evMediaWrap = $('#evMediaWrap'), evMedia = $('#evMedia');
+  const evVizWrap = $('#evVizWrap'), evViz = $('#evViz');
+  const btnRescan = $('#btnRescan'), btnReset = $('#btnReset');
+  const verdictEl = $('#verdict');
+  const modEls = $$('.mod');
   const IMG_EXTS = ['jpg','jpeg','png','webp','gif','bmp','heic','heif','avif','tif','tiff'];
   const AUD_EXTS = ['wav','wave','mp3','flac','ogg','oga','opus','m4a','m4b','m4r','amr','aiff','aif','wma','asf'];
   const VID_EXTS = ['mp4','m4v','mov','qt','mkv','webm','avi','divx','flv','f4v','ts','m2ts','mts','mpg','mpeg','vob','3gp','3g2','ogv','wmv'];
@@ -3595,14 +3651,14 @@ const App = (() => {
   let currentFile = null, currentMode = 'image', busy = false, dragDepth = 0, mediaUrl = null;
   let viz = null, rafOn = false, lastFrames = null;
 
-  const emit = async (text, status => {
-    Terminal.log(text, status;
-    if (CONFIG.logPacingMs) await sleep(CONFIG.logPacingMs;
+  const emit = async (text, status) => {
+    Terminal.log(text, status);
+    if (CONFIG.logPacingMs) await sleep(CONFIG.logPacingMs);
   };
 
-  function setMediaMode(mode{
+  function setMediaMode(mode){
     currentMode = mode;
-    MODULES[mode].forEach((def, i => {
+    MODULES[mode].forEach((def, i) => {
       modEls[i].innerHTML =
         '<span class="pixel-icon icon-pixel-' + def.icon + '" style="--icon-size:20px" aria-hidden="true"></span>' +
         '<span class="mod-id"><b>0' + (i + 1) + '</b><span>' + def.name + '</span></span>' +
@@ -3617,220 +3673,221 @@ const App = (() => {
     m.dataset.state = state;
     m.querySelector('.mod-state').textContent = ST[state] || state;
   }
-  const resetStages = () => modEls.forEach((_, i) => setStage(i, 'idle';
+  const resetStages = () => modEls.forEach((_, i) => setStage(i, 'idle'));
 
   function shake(){
-    dz.classList.remove('shake'; void dz.offsetWidth; dz.classList.add('shake';
+    dz.classList.remove('shake'); void dz.offsetWidth; dz.classList.add('shake');
   }
 
+  /* ── visualizações ── */
   function makeWaveSpec(ac, W, waveH, specH, dpr){
-    const spec = document.createElement('canvas';
+    const spec = document.createElement('canvas');
     spec.width = W; spec.height = specH;
-    const sctx = spec.getContext('2d';
-    const img = sctx.createImageData(W, specH;
+    const sctx = spec.getContext('2d');
+    const img = sctx.createImageData(W, specH);
     const { specCols, specRows } = ac;
-    for (let y = 0; y < specH; y++{
-      const row = Math.min(specRows - 1, Math.floor((1 - y / specH) * specRows;
-      for (let x = 0; x < W; x++{
-        const col = Math.min(specCols - 1, Math.floor(x / W * ac.specCols;
-        const v = ac.spec[row * specCols + col;
+    for (let y = 0; y < specH; y++){
+      const row = Math.min(specRows - 1, Math.floor((1 - y / specH) * specRows));
+      for (let x = 0; x < W; x++){
+        const col = Math.min(specCols - 1, Math.floor(x / W * ac.specCols));
+        const v = ac.spec[row * specCols + col];
         const p = (y * W + x) * 4;
-        img.data[p] = 10 + v * 58; img.data[p+1] = 18 + v * 206; img.data[p+2 = 12 + v * 125; img.data[p+3 = 255;
+        img.data[p] = 10 + v * 58; img.data[p+1] = 18 + v * 206; img.data[p+2] = 12 + v * 125; img.data[p+3] = 255;
       }
     }
-    sctx.putImageData(img, 0, 0;
-    const wave = document.createElement('canvas';
+    sctx.putImageData(img, 0, 0);
+    const wave = document.createElement('canvas');
     wave.width = W; wave.height = waveH;
-    const wctx = wave.getContext('2d';
-    wctx.strokeStyle = 'rgba(78,224,141,.85';
-    wctx.lineWidth = Math.max(1, dpr;
+    const wctx = wave.getContext('2d');
+    wctx.strokeStyle = 'rgba(78,224,141,.85)';
+    wctx.lineWidth = Math.max(1, dpr);
     const half = waveH / 2 - 2 * dpr;
-    for (let x = 0; x < W; x++{
-      const c = Math.min(ac.specCols - 1, Math.floor(x / W * ac.specCols;
+    for (let x = 0; x < W; x++){
+      const c = Math.min(ac.specCols - 1, Math.floor(x / W * ac.specCols));
       const mn = ac.peaks[c * 2] / ac.peakNorm, mx = ac.peaks[c * 2 + 1] / ac.peakNorm;
       wctx.beginPath();
-      wctx.moveTo(x + .5, half - mx * half;
-      wctx.lineTo(x + .5, half - mn * half;
+      wctx.moveTo(x + .5, half - mx * half);
+      wctx.lineTo(x + .5, half - mn * half);
       wctx.stroke();
     }
     return { wave, spec };
   }
 
   function renderVideoViz(fr, ac){
-    const dpr = Math.min(2, window.devicePixelRatio || 1;
-    const W = Math.max(240, Math.floor((evViz.clientWidth || 600) * dpr;
-    const H = Math.floor(262 * dpr;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.max(240, Math.floor((evViz.clientWidth || 600) * dpr));
+    const H = Math.floor(262 * dpr);
     evViz.width = W; evViz.height = H;
     const filmH = ac && ac.ok ? Math.floor(126 * dpr) : H;
-    const film = document.createElement('canvas';
+    const film = document.createElement('canvas');
     film.width = W; film.height = filmH;
-    const fctx = film.getContext('2d';
-    fctx.fillStyle = '#080c09'; fctx.fillRect(0, 0, W, filmH;
+    const fctx = film.getContext('2d');
+    fctx.fillStyle = '#080c09'; fctx.fillRect(0, 0, W, filmH);
     const n = fr.frames.length, slot = W / n, thH = filmH - 16 * dpr;
-    const elas = fr.frames.map(f => f.ela;
-    const eMin = Math.min(...elas, eMax = Math.max(...elas;
-    fr.frames.forEach((f, i => {
+    const elas = fr.frames.map(f => f.ela);
+    const eMin = Math.min(...elas), eMax = Math.max(...elas);
+    fr.frames.forEach((f, i) => {
       const x = i * slot + 3 * dpr, w = slot - 6 * dpr;
-      const scale = Math.min(w / f.thumb.width, thH / f.thumb.height;
+      const scale = Math.min(w / f.thumb.width, thH / f.thumb.height);
       const dw = f.thumb.width * scale, dh = f.thumb.height * scale;
-      fctx.drawImage(f.thumb, x + (w - dw) / 2, (thH - dh) / 2, dw, dh;
-      fctx.strokeStyle = 'rgba(43,58,48,.9'; fctx.lineWidth = dpr;
-      fctx.strokeRect(x, 0, w, thH;
-      const norm = eMax > eMin ? (f.ela - eMin) / (eMax - eMin : 0.5;
-      fctx.fillStyle = 'rgb(' + Math.round(78 + norm * 177 + ',' + Math.round(224 - norm * 129 + ',' + Math.round(141 - norm * 85 + '';
-      fctx.fillRect(x, thH + 4 * dpr, w, 6 * dpr;
+      fctx.drawImage(f.thumb, x + (w - dw) / 2, (thH - dh) / 2, dw, dh);
+      fctx.strokeStyle = 'rgba(43,58,48,.9)'; fctx.lineWidth = dpr;
+      fctx.strokeRect(x, 0, w, thH);
+      const norm = eMax > eMin ? (f.ela - eMin) / (eMax - eMin) : 0.5;
+      fctx.fillStyle = 'rgb(' + Math.round(78 + norm * 177) + ',' + Math.round(224 - norm * 129) + ',' + Math.round(141 - norm * 85) + ')';
+      fctx.fillRect(x, thH + 4 * dpr, w, 6 * dpr);
     });
     let wave = null, spec = null, waveH = 0;
-    if (ac && ac.ok{
-      waveH = Math.floor(36 * dpr;
-      const ws = makeWaveSpec(ac, W, waveH, H - filmH - waveH, dpr;
+    if (ac && ac.ok){
+      waveH = Math.floor(36 * dpr);
+      const ws = makeWaveSpec(ac, W, waveH, H - filmH - waveH, dpr);
       wave = ws.wave; spec = ws.spec;
     }
-    viz = { kind:'video', fr, ac: ac && ac.ok ? ac : null, film, wave, spec, W, H, dpr, filmH, waveH;
+    viz = { kind:'video', fr, ac: ac && ac.ok ? ac : null, film, wave, spec, W, H, dpr, filmH, waveH };
     $('#vizCapL').textContent = 'filmstrip · ' + n + ' quadros · barra = ELA por quadro' +
-      (viz.ac ? ' + onda/espectrograma da trilha' : '';
+      (viz.ac ? ' + onda/espectrograma da trilha' : '');
     evVizWrap.hidden = false;
-    drawViz(evMedia.currentTime || 0;
+    drawViz(evMedia.currentTime || 0);
   }
 
-  function renderAudioViz(ac{
-    const dpr = Math.min(2, window.devicePixelRatio || 1;
-    const W = Math.max(240, Math.floor((evViz.clientWidth || 600) * dpr;
-    const H = Math.floor(262 * dpr;
+  function renderAudioViz(ac){
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.max(240, Math.floor((evViz.clientWidth || 600) * dpr));
+    const H = Math.floor(262 * dpr);
     evViz.width = W; evViz.height = H;
-    const waveH = Math.floor(74 * dpr;
-    const ws = makeWaveSpec(ac, W, waveH, H - waveH, dpr;
-    viz = { kind:'audio', ac, wave: ws.wave, spec: ws.spec, W, H, dpr, waveH;
-    $('#vizCapL').textContent = 'onda + espectrograma' + (ac.capped ? ' · primeiros ' + CONFIG.acousticsMaxSec + ' s' : '';
+    const waveH = Math.floor(74 * dpr);
+    const ws = makeWaveSpec(ac, W, waveH, H - waveH, dpr);
+    viz = { kind:'audio', ac, wave: ws.wave, spec: ws.spec, W, H, dpr, waveH };
+    $('#vizCapL').textContent = 'onda + espectrograma' + (ac.capped ? ' · primeiros ' + CONFIG.acousticsMaxSec + ' s' : '');
     evVizWrap.hidden = false;
-    drawViz(evMedia.currentTime || 0;
+    drawViz(evMedia.currentTime || 0);
   }
 
-  function drawViz(t{
+  function drawViz(t){
     if (!viz) return;
-    const ctx = evViz.getContext('2d';
+    const ctx = evViz.getContext('2d');
     const { W, H, dpr } = viz;
-    ctx.fillStyle = '#080c09'; ctx.fillRect(0, 0, W, H;
+    ctx.fillStyle = '#080c09'; ctx.fillRect(0, 0, W, H);
     const dur = viz.kind === 'video' ? viz.fr.duration : viz.ac.duration;
-    if (viz.kind === 'video'{
-      ctx.drawImage(viz.film, 0, 0;
-      if (viz.wave{
-        ctx.drawImage(viz.wave, 0, viz.filmH;
-        ctx.drawImage(viz.spec, 0, viz.filmH + viz.waveH;
-        ctx.strokeStyle = 'rgba(43,58,48,.9'; ctx.lineWidth = dpr;
-        ctx.beginPath(); ctx.moveTo(0, viz.filmH; ctx.lineTo(W, viz.filmH; ctx.stroke();
+    if (viz.kind === 'video'){
+      ctx.drawImage(viz.film, 0, 0);
+      if (viz.wave){
+        ctx.drawImage(viz.wave, 0, viz.filmH);
+        ctx.drawImage(viz.spec, 0, viz.filmH + viz.waveH);
+        ctx.strokeStyle = 'rgba(43,58,48,.9)'; ctx.lineWidth = dpr;
+        ctx.beginPath(); ctx.moveTo(0, viz.filmH); ctx.lineTo(W, viz.filmH); ctx.stroke();
       }
     } else {
-      ctx.drawImage(viz.wave, 0, 0;
-      ctx.drawImage(viz.spec, 0, viz.waveH;
-      ctx.strokeStyle = 'rgba(43,58,48,.9'; ctx.lineWidth = dpr;
-      ctx.beginPath(); ctx.moveTo(0, viz.waveH; ctx.lineTo(W, viz.waveH; ctx.stroke();
+      ctx.drawImage(viz.wave, 0, 0);
+      ctx.drawImage(viz.spec, 0, viz.waveH);
+      ctx.strokeStyle = 'rgba(43,58,48,.9)'; ctx.lineWidth = dpr;
+      ctx.beginPath(); ctx.moveTo(0, viz.waveH); ctx.lineTo(W, viz.waveH); ctx.stroke();
     }
-    if (viz.ac && viz.ac.shelfHz && viz.ac.sr{
+    if (viz.ac && viz.ac.shelfHz && viz.ac.sr){
       const top = viz.kind === 'video' ? viz.filmH + viz.waveH : viz.waveH;
       const sh = H - top;
-      const y = top + Math.max(2 * dpr, (1 - viz.ac.shelfHz / (viz.ac.sr / 2)) * sh;
-      ctx.strokeStyle = 'rgba(255,95,86,.8';
-      ctx.setLineDash([6 * dpr, 4 * dpr;
-      ctx.beginPath(); ctx.moveTo(0, y; ctx.lineTo(W, y; ctx.stroke();
+      const y = top + Math.max(2 * dpr, (1 - viz.ac.shelfHz / (viz.ac.sr / 2)) * sh);
+      ctx.strokeStyle = 'rgba(255,95,86,.8)';
+      ctx.setLineDash([6 * dpr, 4 * dpr]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#ff5f56;
+      ctx.fillStyle = '#ff5f56';
       ctx.font = (9 * dpr) + 'px "JetBrains Mono", monospace';
-      ctx.fillText('corte ~' + (viz.ac.shelfHz / 1000).toFixed(1) + ' kHz', 6 * dpr, y - 4 * dpr;
+      ctx.fillText('corte ~' + (viz.ac.shelfHz / 1000).toFixed(1) + ' kHz', 6 * dpr, y - 4 * dpr);
     }
     const steps = [1,2,5,10,15,30,60,120,300,600];
-    const step = steps.find(s => dur / s <= 12 || 600;
-    ctx.font = (9 * dpr) + 'px "JetBrains Mono", monospace;
+    const step = steps.find(s => dur / s <= 12) || 600;
+    ctx.font = (9 * dpr) + 'px "JetBrains Mono", monospace';
     ctx.fillStyle = '#5c6a60';
-    ctx.strokeStyle = 'rgba(43,58,48,.5';
-    for (let s = step; s < dur; s += step{
-      const x = Math.round(s / dur * W + .5;
-      ctx.beginPath(); ctx.moveTo(x, 0; ctx.lineTo(x, H; ctx.stroke();
-      ctx.fillText(fmtTime(s, x + 3 * dpr, H - 4 * dpr;
+    ctx.strokeStyle = 'rgba(43,58,48,.5)';
+    for (let s = step; s < dur; s += step){
+      const x = Math.round(s / dur * W) + .5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      ctx.fillText(fmtTime(s), x + 3 * dpr, H - 4 * dpr);
     }
-    const x = Math.min(W - 1, (t / (dur || 1) * W;
+    const x = Math.min(W - 1, (t / (dur || 1)) * W);
     ctx.strokeStyle = '#8effc0'; ctx.lineWidth = dpr;
-    ctx.beginPath(); ctx.moveTo(x, 0; ctx.lineTo(x, H; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
 
   function vizLoop(){
     if (!rafOn) return;
-    if (!evMedia.paused{ drawViz(evMedia.currentTime; requestAnimationFrame(vizLoop;
-  }
-  else { rafOn = false; drawViz(evMedia.currentTime; }
+    if (!evMedia.paused){ drawViz(evMedia.currentTime); requestAnimationFrame(vizLoop); }
+    else { rafOn = false; drawViz(evMedia.currentTime); }
   }
 
-  function renderFacts(R, file{
+  /* ── fichas ── */
+  function renderFacts(R, file){
     const rows = [];
-    const push = (k, v => rows.push([k, v];
-    push('Arquivo', esc(file.name;
-    push('Tipo declarado', esc(file.type || 'não declarado';
-    push('Formato real', esc(R.structure.format + (R.facts.extOk === false ? ' <span class="bad">· extensão divergente</span>' : '';
-    push('Tamanho', esc(fmtBytes(R.facts.size;
+    const push = (k, v) => rows.push([k, v]);
+    push('Arquivo', esc(file.name));
+    push('Tipo declarado', esc(file.type || 'não declarado'));
+    push('Formato real', esc(R.structure.format) + (R.facts.extOk === false ? ' <span class="bad">· extensão divergente</span>' : ''));
+    push('Tamanho', esc(fmtBytes(R.facts.size)));
 
     if (R.mode === 'image'){
       const dims = R.structure.dims || R.facts.naturalDims;
-      if (dims{
-        push('Resolução', dims.w + '×' + dims.h + ' px';
-        const g = gcd(dims.w, dims.h;
-        if (g > 1) push('Proporção', (dims.w / g + ':' + (dims.h / g;
-        push('Densidade', ((R.facts.size * 8) / (dims.w * dims.h)).toFixed(2) + ' bits/px';
+      if (dims){
+        push('Resolução', dims.w + '×' + dims.h + ' px');
+        const g = gcd(dims.w, dims.h);
+        if (g > 1) push('Proporção', (dims.w / g) + ':' + (dims.h / g));
+        push('Densidade', ((R.facts.size * 8) / (dims.w * dims.h)).toFixed(2) + ' bits/px');
       }
-      if (R.elaGrid) push('ELA (Q85', R.elaGrid.med.toFixed(1) + ' med · máx ' + R.elaGrid.max.toFixed(1) + ' · ' + R.elaGrid.hot + '/144 células quentes';
+      if (R.elaGrid) push('ELA (Q85)', R.elaGrid.med.toFixed(1) + ' med · máx ' + R.elaGrid.max.toFixed(1) + ' · ' + R.elaGrid.hot + '/144 células quentes');
     }
-    else if (R.mode === 'audio'{
+    else if (R.mode === 'audio'){
       const AC = R.acoustics || {}, S = R.structure;
       const dur = AC.ok ? AC.duration : S.claimedDuration;
-      push('Codec', esc(S.codec || '—';
-      if (dur) push('Duração', fmtTime(dur;
-      if (AC.ok{
-        push('Amostragem', (AC.sr / 1000).toFixed(1) + ' kHz decodificado';
-        push('Canais', AC.channels;
-        push('Bitrate', Math.round(R.facts.size * 8 / AC.duration / 1000) + ' kbps (médio';
-        push('Piso de ruído', AC.noiseFloorDb.toFixed(1) + ' dB';
-        push('Banda efetiva', AC.bandwidthHz + ' Hz' + (AC.shelfHz ? ' <span class="bad">· shelf ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz</span>' : '';
-        if (AC.f0) push('F0 mediano', AC.f0.median.toFixed(0) + ' Hz · CV ' + AC.f0.cv.toFixed(3;
+      push('Codec', esc(S.codec || '—'));
+      if (dur) push('Duração', fmtTime(dur));
+      if (AC.ok){
+        push('Amostragem', (AC.sr / 1000).toFixed(1) + ' kHz decodificado');
+        push('Canais', AC.channels);
+        push('Bitrate', Math.round(R.facts.size * 8 / AC.duration / 1000) + ' kbps (médio)');
+        push('Piso de ruído', AC.noiseFloorDb.toFixed(1) + ' dB');
+        push('Banda efetiva', AC.bandwidthHz + ' Hz' + (AC.shelfHz ? ' <span class="bad">· shelf ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz</span>' : ''));
+        if (AC.f0) push('F0 mediano', AC.f0.median.toFixed(0) + ' Hz · CV ' + AC.f0.cv.toFixed(3));
       }
     }
     else {
       const S = R.structure, F = R.frames, AC = R.acoustics, P = S.probe;
-      const vtrk = P && P.tracks.find(t => t.hdlr === 'vide';
-      const atrk = P && P.tracks.find(t => t.hdlr === 'soun';
-      if (P && (vtrk || atrk{
-        push('Codecs', esc([vtrk, atrk].filter(Boolean.map(t =>
-          (t.hdlr === 'vide' ? 'vídeo: ' : 'áudio: ' + (t.formats || [].join('+').join(' · ' || '—';
-      } else if (S.vCodecs || S.aCodecs
-        push('Codecs', esc((S.vCodecs || [].join('/') + ' + ' + (S.aCodecs || [].join('/';
-      else if (S.tracks{
-        const v = S.tracks.find(t => t.fccType === 'vids';
-        const a = S.tracks.find(t => t.fccType === 'auds';
-        push('Handlers', esc([v && ('vídeo: ' + v.fccHandler), a && 'áudio'].filter(Boolean.join(' · ';
+      const vtrk = P && P.tracks.find(t => t.hdlr === 'vide');
+      const atrk = P && P.tracks.find(t => t.hdlr === 'soun');
+      if (P && (vtrk || atrk)){
+        push('Codecs', esc([vtrk, atrk].filter(Boolean).map(t =>
+          (t.hdlr === 'vide' ? 'vídeo: ' : 'áudio: ') + (t.formats || []).join('+')).join(' · ') || '—'));
+      } else if (S.vCodecs || S.aCodecs)
+        push('Codecs', esc((S.vCodecs || []).join('/') + ' + ' + (S.aCodecs || []).join('/')));
+      else if (S.tracks){
+        const v = S.tracks.find(t => t.fccType === 'vids');
+        const a = S.tracks.find(t => t.fccType === 'auds');
+        push('Handlers', esc([v && ('vídeo: ' + v.fccHandler), a && 'áudio'].filter(Boolean).join(' · ')));
       }
-      const dims = S.dims || (F && F.ok ? { w: F.w, h: F.h } : null;
-      if (dims) push('Resolução', dims.w + '×' + dims.h + ' px' + (!S.dims && F && F.ok ? ' <span class="mono-dim">(decodificada</span>' : '';
-      const dur = S.duration || (F && F.ok ? F.duration : null;
-      if (dur{
-        push('Duração', fmtTime(dur;
-        push('Bitrate', Math.round(R.facts.size * 8 / dur / 1000) + ' kbps (total';
+      const dims = S.dims || (F && F.ok ? { w: F.w, h: F.h } : null);
+      if (dims) push('Resolução', dims.w + '×' + dims.h + ' px' + (!S.dims && F && F.ok ? ' <span class="mono-dim">(decodificada)</span>' : ''));
+      const dur = S.duration || (F && F.ok ? F.duration : null);
+      if (dur){
+        push('Duração', fmtTime(dur));
+        push('Bitrate', Math.round(R.facts.size * 8 / dur / 1000) + ' kbps (total)');
       }
-      if (S.fps) push('Taxa de quadros', S.fps.toFixed(2) + ' fps (avih';
-      if (S.totalFrames) push('Quadros (avih', S.totalFrames.toLocaleString('pt-BR';
-      if (P && P.creationDate) push('Criado (contêiner', P.creationDate.toLocaleString('pt-BR';
-      if (P) push('Pistas', P.tracks.filter(t => t.hdlr === 'vide'.length + ' vídeo · ' +
-                   P.tracks.filter(t => t.hdlr === 'soun'.length + ' áudio';
-      if (F && F.ok) push('ELA médio', F.elaMean.toFixed(2 + ' · CV ' + F.elaCV.toFixed(3;
-      if (AC && AC.ok{
-        push('Trilha · ruído', AC.noiseFloorDb.toFixed(1 + ' dB';
-        push('Trilha · banda', AC.bandwidthHz + ' Hz' + (AC.shelfHz ? ' <span class="bad">· shelf ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz</span>' : '';
-        if (AC.f0) push('Trilha · F0', AC.f0.median.toFixed(0) + ' Hz · CV ' + AC.f0.cv.toFixed(3;
+      if (S.fps) push('Taxa de quadros', S.fps.toFixed(2) + ' fps (avih)');
+      if (S.totalFrames) push('Quadros (avih)', S.totalFrames.toLocaleString('pt-BR'));
+      if (P && P.creationDate) push('Criado (contêiner)', P.creationDate.toLocaleString('pt-BR'));
+      if (P) push('Pistas', P.tracks.filter(t => t.hdlr === 'vide').length + ' vídeo · ' +
+                   P.tracks.filter(t => t.hdlr === 'soun').length + ' áudio');
+      if (F && F.ok) push('ELA médio', F.elaMean.toFixed(2) + ' · CV ' + F.elaCV.toFixed(3));
+      if (AC && AC.ok){
+        push('Trilha · ruído', AC.noiseFloorDb.toFixed(1) + ' dB');
+        push('Trilha · banda', AC.bandwidthHz + ' Hz' + (AC.shelfHz ? ' <span class="bad">· shelf ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz</span>' : ''));
+        if (AC.f0) push('Trilha · F0', AC.f0.median.toFixed(0) + ' Hz · CV ' + AC.f0.cv.toFixed(3));
       }
     }
-    push('Modificado', new Date(file.lastModified.toLocaleString('pt-BR';
-    if (R.hash) push('SHA-256', '<span class="mono-dim">' + esc(R.hash.slice(0, 32) + '…</span>';
-    evFacts.innerHTML = rows.map(r => '<div class="ev-row"><dt>' + r[0] + '</dt><dd>' + r[1] + '</dd></div>'.join('');
+    push('Modificado', new Date(file.lastModified).toLocaleString('pt-BR'));
+    if (R.hash) push('SHA-256', '<span class="mono-dim">' + esc(R.hash.slice(0, 32)) + '…</span>');
+    evFacts.innerHTML = rows.map(r => '<div class="ev-row"><dt>' + r[0] + '</dt><dd>' + r[1] + '</dd></div>').join('');
   }
 
-  function renderVerdict(R{
+  function renderVerdict(R){
     const v = R.verdict;
     const ARROW = { syn:['▲','s-syn'], auth:['▼','s-auth'], info:['•','s-info'] };
     verdictEl.className = 'verdict v-' + v.cls;
@@ -3838,40 +3895,40 @@ const App = (() => {
       '<span class="v-stamp">' + v.copy.stamp + '</span>' +
       '<p class="v-main">' + v.copy.line + '</p>' +
       '<div class="v-kv"><span>Proveniência C2PA</span><b>' + v.provenance + '</b></div>' +
-      '<div class="v-kv"><span>Escore heurístico</span><b>' + (v.score > 0 ? '+' : '' + v.score + '</b></div>' +
+      '<div class="v-kv"><span>Escore heurístico</span><b>' + (v.score > 0 ? '+' : '') + v.score + '</b></div>' +
       '<div class="v-signals">' + v.signals.map(s => {
-        const a = ARROW[s.dir;
+        const a = ARROW[s.dir];
         const w = s.dir === 'auth' ? '−' + s.weight : s.dir === 'syn' && s.weight ? '+' + s.weight : '0';
         return '<div class="v-sig ' + a[1] + '"><span class="v-arrow">' + a[0] +
-               '</span><span class="v-lbl">' + esc(s.label + '</span><span class="v-w">' + w + '</span></div>';
-      }).join('' + '</div>' +
+               '</span><span class="v-lbl">' + esc(s.label) + '</span><span class="v-w">' + w + '</span></div>';
+      }).join('') + '</div>' +
       '<p class="v-note">Heurística de arquivo, quadro e sinal — não substitui perícia nem modelos treinados. ' +
       'Sinais ▲ pesam a favor de síntese; ▼ a favor de captura autêntica; • são informativos.</p>';
     verdictEl.hidden = false;
   }
 
   /* ── fluxo principal ── */
-  async function handleFile(file, via{
-    if (busy{ Terminal.log('análise em andamento — aguarde a conclusão', 'warn'; return; }
+  async function handleFile(file, via){
+    if (busy){ Terminal.log('análise em andamento — aguarde a conclusão', 'warn'); return; }
     if (!file || file.size === 0) return;
 
-    const ext = extOf(file.name;
-    const isImg = (file.type && file.type.startsWith('image/') || IMG_EXTS.includes(ext;
-    const isAud = (file.type && file.type.startsWith('audio/' || AUD_EXTS.includes(ext;
-    const isVid = (file.type && file.type.startsWith('video/' || VID_EXTS.includes(ext;
-    if (!isImg && !isAud && !isVid{
-      Terminal.section('ENTRADA REJEITADA';
-      Terminal.log('"' + file.name + '" não parece ser imagem, áudio ou vídeo (tipo: ' + (file.type || 'desconhecido' + '', 'err';
+    const ext = extOf(file.name);
+    const isImg = (file.type && file.type.startsWith('image/')) || IMG_EXTS.includes(ext);
+    const isAud = (file.type && file.type.startsWith('audio/'))  || AUD_EXTS.includes(ext);
+    const isVid = (file.type && file.type.startsWith('video/'))  || VID_EXTS.includes(ext);
+    if (!isImg && !isAud && !isVid){
+      Terminal.section('ENTRADA REJEITADA');
+      Terminal.log('"' + file.name + '" não parece ser imagem, áudio ou vídeo (tipo: ' + (file.type || 'desconhecido') + ')', 'err');
       shake(); return;
     }
-    if (isVid && file.size > CONFIG.maxVideoMB * 1024 * 1024{
-      Terminal.section('ENTRADA REJEITADA';
-      Terminal.log('vídeo acima de ' + CONFIG.maxVideoMB + ' MB — teto de memória do processamento local', 'err';
+    if (isVid && file.size > CONFIG.maxVideoMB * 1024 * 1024){
+      Terminal.section('ENTRADA REJEITADA');
+      Terminal.log('vídeo acima de ' + CONFIG.maxVideoMB + ' MB — teto de memória do processamento local', 'err');
       shake(); return;
     }
-    if (isAud && !isVid && file.size > CONFIG.maxAudioMB * 1024 * 1024{
-      Terminal.section('ENTRADA REJEITADA';
-      Terminal.log('áudio acima de ' + CONFIG.maxAudioMB + ' MB — teto de memória do processamento local', 'err';
+    if (isAud && !isVid && file.size > CONFIG.maxAudioMB * 1024 * 1024){
+      Terminal.section('ENTRADA REJEITADA');
+      Terminal.log('áudio acima de ' + CONFIG.maxAudioMB + ' MB — teto de memória do processamento local', 'err');
       shake(); return;
     }
 
@@ -3887,59 +3944,59 @@ const App = (() => {
     viz = null;
     Terminal.clear();
 
-    Terminal.section('EVIDÊNCIA · ' + file.name;
+    Terminal.section('EVIDÊNCIA · ' + file.name);
     Terminal.log('origem da entrada: ' +
       ({ drop:'arrastar e soltar', paste:'área de transferência', picker:'seletor de arquivos',
-         're-run':'reanálise manual', forge:'bancada ofensiva — loop sintetizar → detectar' }[via] || 'manual', 'plain';
-    const rBar = Terminal.progress('lendo arquivo do disco';
+         're-run':'reanálise manual', forge:'bancada ofensiva — loop sintetizar → detectar' }[via] || 'manual'), 'plain');
+    const rBar = Terminal.progress('lendo arquivo do disco');
     let buffer;
-    try { buffer = await ForensicCore.readFile(file, (l, t => rBar.update(l, t; }
-    catch (e{ rBar.end(); Terminal.log('falha na leitura: ' + e.message, 'err'; busy = false; btnRescan.disabled = false; return; }
+    try { buffer = await ForensicCore.readFile(file, (l, t) => rBar.update(l, t)); }
+    catch (e){ rBar.end(); Terminal.log('falha na leitura: ' + e.message, 'err'); busy = false; btnRescan.disabled = false; return; }
     rBar.end();
-    const readMs = Math.round(performance.now() - t0;
-    Terminal.log(fmtBytes(file.size) + ' lidos em ' + readMs + ' ms', 'ok';
+    const readMs = Math.round(performance.now() - t0);
+    Terminal.log(fmtBytes(file.size) + ' lidos em ' + readMs + ' ms', 'ok');
 
     const hint = isVid ? 'video' : isAud ? 'audio' : 'image';
-    const dv = new DataView(buffer;
-    const sniff = ForensicCore.sniffMedia(dv, buffer.byteLength, hint;
+    const dv = new DataView(buffer);
+    const sniff = ForensicCore.sniffMedia(dv, buffer.byteLength, hint);
     const mode = sniff ? sniff.media : hint;
-    if (mode !== hint
-      Terminal.log('roteamento: conteúdo real é ' + (mode === 'video' ? 'VÍDEO' : mode === 'audio' ? 'ÁUDIO' : 'IMAGEM' +
-                   ' — pipeline ajustado pela assinatura de bytes, não pela extensão', 'warn';
-    setMediaMode(mode;
+    if (mode !== hint)
+      Terminal.log('roteamento: conteúdo real é ' + (mode === 'video' ? 'VÍDEO' : mode === 'audio' ? 'ÁUDIO' : 'IMAGEM') +
+                   ' — pipeline ajustado pela assinatura de bytes, não pela extensão', 'warn');
+    setMediaMode(mode);
     resetStages();
 
     let ioDims = null, ioImageEl = null;
     evImg.hidden = true; evNo.hidden = true;
-    if (mode === 'image'{
+    if (mode === 'image'){
       evPreview.hidden = false;
       evMediaWrap.hidden = true;
-      if (mediaUrl{ URL.revokeObjectURL(mediaUrl; mediaUrl = null; }
+      if (mediaUrl){ URL.revokeObjectURL(mediaUrl); mediaUrl = null; }
       try {
-        const dataUrl = await new Promise((res, rej => {
+        const dataUrl = await new Promise((res, rej) => {
           const fr = new FileReader();
-          fr.onload = () => res(fr.result;
-          fr.onerror = () => rej(new Error('erro de leitura';
-          fr.readAsDataURL(file;
+          fr.onload = () => res(fr.result);
+          fr.onerror = () => rej(new Error('erro de leitura'));
+          fr.readAsDataURL(file);
         });
         const img = await new Promise(res => {
           const i = new Image();
-          i.onload = () => res(i; i.onerror = () => res(null; i.src = dataUrl;
+          i.onload = () => res(i); i.onerror = () => res(null); i.src = dataUrl;
         });
-        if (img{
+        if (img){
           evImg.src = dataUrl; evImg.hidden = false;
-          ioDims = { w: img.naturalWidth, h: img.naturalHeight;
+          ioDims = { w: img.naturalWidth, h: img.naturalHeight };
           ioImageEl = img;
-          await emit('preview decodificado: ' + ioDims.w + '×' + ioDims.h + ' px', 'ok';
-        } else { evNo.hidden = false; await emit('formato não decodificável — a análise estrutural continua', 'warn'; }
-      } catch { evNo.hidden = false; await emit('falha ao gerar preview — a análise estrural continua', 'warn'; }
+          await emit('preview decodificado: ' + ioDims.w + '×' + ioDims.h + ' px', 'ok');
+        } else { evNo.hidden = false; await emit('formato não decodificável — a análise estrutural continua', 'warn'); }
+      } catch { evNo.hidden = false; await emit('falha ao gerar preview — a análise estrutural continua', 'warn'); }
     } else {
       evPreview.hidden = true;
       evMediaWrap.hidden = false;
-      if (mediaUrl) URL.revokeObjectURL(mediaUrl;
-      mediaUrl = URL.createObjectURL(file;
+      if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+      mediaUrl = URL.createObjectURL(file);
       evMedia.src = mediaUrl;
-      await emit('player pronto (object URL) — decodificação e DSP seguem abaixo', 'plain';
+      await emit('player pronto (object URL) — decodificação e DSP seguem abaixo', 'plain');
     }
 
     let report;
@@ -3954,133 +4011,133 @@ const App = (() => {
         elaGrid: ioImageEl ? PixelLab.elaGrid : null,
         getFrames: mode === 'video'
           ? async () => {
-              const fr = await VideoLab.extract(file, emit, Terminal.progress;
+              const fr = await VideoLab.extract(file, emit, Terminal.progress);
               lastFrames = fr;
               if (!fr.ok) return { ok: false, why: fr.why };
-              const elas = fr.frames.map(f => f.ela;
-              const em = elas.reduce((a, b => a + b, 0 / elas.length;
-              const ecv = Math.sqrt(elas.reduce((a, b => a + (b - em * (b - em) / elas.length) / elas.length) / (em || 1;
+              const elas = fr.frames.map(f => f.ela);
+              const em = elas.reduce((a, b) => a + b, 0) / elas.length;
+              const ecv = Math.sqrt(elas.reduce((a, b) => a + (b - em) * (b - em), 0) / elas.length) / (em || 1);
               return { ok: true, w: fr.w, h: fr.h, duration: fr.duration,
-                       frames: fr.frames.map(f => ({ t: f.t, ela: f.ela, elaP95: f.elaP95 },
+                       frames: fr.frames.map(f => ({ t: f.t, ela: f.ela, elaP95: f.elaP95 })),
                        elaMean: em, elaCV: ecv,
-                       p95Mean: fr.frames.reduce((a, f => a + f.elaP95, 0 / fr.frames.length,
+                       p95Mean: fr.frames.reduce((a, f) => a + f.elaP95, 0) / fr.frames.length,
                        activityMean: fr.activityMean, activityCV: fr.activityCV };
             }
           : undefined
       });
-    } catch (err{
-      console.error(err;
-      Terminal.section('FALHA';
-      Terminal.log('erro durante a análise: ' + err.message, 'err';
+    } catch (err){
+      console.error(err);
+      Terminal.section('FALHA');
+      Terminal.log('erro durante a análise: ' + err.message, 'err');
       busy = false; btnRescan.disabled = false; return;
     }
 
-    if (report.mode === 'audio' && report.acoustics && report.acoustics.ok
-      renderAudioViz(report.acoustics;
-    if (report.mode === 'video' && lastFrames && lastFrames.ok
-      renderVideoViz(lastFrames, report.acoustics;
-    renderFacts(report, file;
-    renderVerdict(report;
+    if (report.mode === 'audio' && report.acoustics && report.acoustics.ok)
+      renderAudioViz(report.acoustics);
+    if (report.mode === 'video' && lastFrames && lastFrames.ok)
+      renderVideoViz(lastFrames, report.acoustics);
+    renderFacts(report, file);
+    renderVerdict(report);
 
-    Terminal.section('VEREDITO';
+    Terminal.section('VEREDITO');
     Terminal.log(report.verdict.copy.stamp + ' — escore heurístico ' +
-      (report.verdict.score > 0 ? '+' : '' + report.verdict.score,
-      report.verdict.cls === 'bad' ? 'err' : (report.verdict.cls === 'ok' ? 'ok' : 'warn';
-    Terminal.log('proveniência C2PA: ' + report.verdict.provenance, report.c2pa && report.c2pa.found ? 'ok' : 'plain';
-    Terminal.log('4 módulos concluídos em ' + (performance.now() - t0.toFixed(0 +
-                 ' ms · detalhes na ficha (esquerda e no painel de sinais', 'plain';
+      (report.verdict.score > 0 ? '+' : '') + report.verdict.score,
+      report.verdict.cls === 'bad' ? 'err' : (report.verdict.cls === 'ok' ? 'ok' : 'warn'));
+    Terminal.log('proveniência C2PA: ' + report.verdict.provenance, report.c2pa && report.c2pa.found ? 'ok' : 'plain');
+    Terminal.log('4 módulos concluídos em ' + (performance.now() - t0).toFixed(0) +
+                 ' ms · detalhes na ficha (esquerda) e no painel de sinais', 'plain');
 
     busy = false; btnRescan.disabled = false;
   }
 
   /* injeção de artefatos da FORGE no pipeline de detecção */
-  function submitBlob(blob, name{
-    const f = new File([blob], name, { type: blob.type || 'application/octet-stream';
-    $('#workbench').scrollIntoView({ behavior: 'smooth', block: 'start';
-    handleFile(f, 'forge';
+  function submitBlob(blob, name){
+    const f = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+    $('#workbench').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    handleFile(f, 'forge');
   }
 
   function reset(){
     currentFile = null;
     viz = null; rafOn = false; lastFrames = null;
-    if (mediaUrl{ URL.revokeObjectURL(mediaUrl; mediaUrl = null; }
-    evMedia.pause(); evMedia.removeAttribute('src';
+    if (mediaUrl){ URL.revokeObjectURL(mediaUrl); mediaUrl = null; }
+    evMedia.pause(); evMedia.removeAttribute('src');
     dz.hidden = false;
     evidence.hidden = true;
     verdictEl.hidden = true;
     evVizWrap.hidden = true;
-    evImg.removeAttribute('src';
-    setMediaMode('image';
+    evImg.removeAttribute('src');
+    setMediaMode('image');
     resetStages();
     bootLog();
   }
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.10.1';
-    Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain';
-    Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0 → assinaturas', 'plain';
-    Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA + trilha → assinaturas', 'plain';
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação (boca v6: arco dental natural — os dentes seguem a boca', 'plain';
-    Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain';
-    Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run';
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.11');
+    Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
+    Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
+    Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + reencenação (boca v6: arco dental natural — os dentes seguem a boca) — webcam, foto ou REVIVER', 'plain');
+    Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
+    Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }
 
   function init(){
-    dz.addEventListener('click', () => input.click();
+    dz.addEventListener('click', () => input.click());
     dz.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key == ' '){ e.preventDefault(); input.click(); }
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); input.click(); }
     });
     input.addEventListener('change', () => {
-      if (input.files[0]) handleFile(input.files[0], 'picker';
+      if (input.files[0]) handleFile(input.files[0], 'picker');
       input.value = '';
     });
-    document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dz.classList.add('is-drag'; }
-    document.addEventListener('dragover',  e => e.preventDefault();
+    document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dz.classList.add('is-drag'); });
+    document.addEventListener('dragover',  e => e.preventDefault());
     document.addEventListener('dragleave', e => {
       e.preventDefault();
-      if (--dragDepth <= 0{ dragDepth = 0; dz.classList.remove('is-drag'; }
+      if (--dragDepth <= 0){ dragDepth = 0; dz.classList.remove('is-drag'); }
     });
     document.addEventListener('drop', e => {
       e.preventDefault();
-      dragDepth = 0; dz.classList.remove('is-drag';
+      dragDepth = 0; dz.classList.remove('is-drag');
       const f = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) handleFile(f, 'drop';
+      if (f) handleFile(f, 'drop');
     });
     document.addEventListener('paste', e => {
-      const items = [...((e.clipboardData && e.clipboardData.items || [];
-      const it = items.find(i => i.type.startsWith('image/' || i.type.startsWith('audio/' || i.type.startsWith('video/';
-      if (it{ const f = it.getAsFile; if (f) handleFile(f, 'paste';
+      const items = [...((e.clipboardData && e.clipboardData.items) || [])];
+      const it = items.find(i => i.type.startsWith('image/') || i.type.startsWith('audio/') || i.type.startsWith('video/'));
+      if (it){ const f = it.getAsFile(); if (f) handleFile(f, 'paste'); }
     });
-    btnRescan.addEventListener('click', () => { if (currentFile) handleFile(currentFile, 're-run'; }
-    btnReset.addEventListener('click', reset;
+    btnRescan.addEventListener('click', () => { if (currentFile) handleFile(currentFile, 're-run'); });
+    btnReset.addEventListener('click', reset);
 
-    evMedia.addEventListener('play',  () => { if (viz && !rafOn{ rafOn = true; vizLoop(); } });
-    evMedia.addEventListener('pause', () => { if (viz) drawViz(evMedia.currentTime; }
-    evMedia.addEventListener('seeked',() => { if (viz && evMedia.paused) drawViz(evMedia.currentTime; }
+    evMedia.addEventListener('play',  () => { if (viz && !rafOn){ rafOn = true; vizLoop(); } });
+    evMedia.addEventListener('pause', () => { if (viz) drawViz(evMedia.currentTime); });
+    evMedia.addEventListener('seeked',() => { if (viz && evMedia.paused) drawViz(evMedia.currentTime); });
     evMedia.addEventListener('error', () => { evMediaWrap.hidden = true; });
     evViz.addEventListener('click', e => {
       if (!viz) return;
       const dur = viz.kind === 'video' ? viz.fr.duration : viz.ac.duration;
       if (!dur) return;
       const r = evViz.getBoundingClientRect();
-      const f = Math.max(0, Math.min(1, (e.clientX - r.left / r.width;
+      const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
       evMedia.currentTime = f * dur;
-      drawViz(evMedia.currentTime;
+      drawViz(evMedia.currentTime);
     });
     let rzT;
     window.addEventListener('resize', () => {
       if (!viz) return;
-      clearTimeout(rzT;
+      clearTimeout(rzT);
       rzT = setTimeout(() => {
-        if (viz.kind === 'audio') renderAudioViz(viz.ac;
-        else renderVideoViz(viz.fr, viz.ac;
-      }, 200;
+        if (viz.kind === 'audio') renderAudioViz(viz.ac);
+        else renderVideoViz(viz.fr, viz.ac);
+      }, 200);
     });
 
-    const clock = $('#clock';
-    const tick = () => { clock.textContent = new Date().toLocaleTimeString('pt-BR', { hour12: false };
-    tick(); setInterval(tick, 1000;
+    const clock = $('#clock');
+    const tick = () => { clock.textContent = new Date().toLocaleTimeString('pt-BR', { hour12: false }); };
+    tick(); setInterval(tick, 1000);
 
     PixelArt.mountAll();
     VoiceForge.init();
