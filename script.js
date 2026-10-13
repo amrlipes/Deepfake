@@ -1737,9 +1737,33 @@ const ForensicCore = (() => {
     if (S.probe && S.probe.gpmd) add('auth', 2, 'Telemetria GPMD (GoPro) embutida — captura de câmera real');
     if (!R.metaCount && !QT.length && !(S.probe && S.probe.gpmd))
       add('syn', 1, 'Ausência total de metadados de captura (geração OU strip por re-encode)');
+
+    /* ── v2 · quadros: ELA + atividade ── */
     if (F && F.ok){
       add('info', 0, 'ELA médio dos quadros: ' + F.elaMean.toFixed(2) + ' (CV ' + F.elaCV.toFixed(3) + ') — informativo');
+      if (F.activityCV < .22 && F.frames && F.frames.length >= 5)
+        add('syn', 1, 'Atividade inter-frame anormalmente uniforme (CV ' + F.activityCV.toFixed(3) + ') — padrão típico de geração de vídeo');
     }
+
+    /* ── v2 · AUDITORIA FACIAL: piscadas, olho morto, lábios × trilha ── */
+    if (F && F.ok && F.face && F.face.ok){
+      const FA = F.face;
+      const talking = AC && AC.ok && AC.silenceRatio < .45 && AC.duration > 2;
+      if (FA.tCovered >= 1.2){
+        if (FA.blinks === 0 && FA.earJitter < .018)
+          add('syn', 2, 'Olhos sem piscar E sem micro-flutuação em ' + FA.tCovered.toFixed(1) +
+              ' s auditados — "olho morto", traço clássico de reencenação/avatar (Wav2Lip, foto animada)');
+        else if (FA.blinks > 0)
+          add('auth', 1, FA.blinks + ' piscada(s) natural(is) capturada(s) na auditoria facial');
+        else if (FA.earJitter >= .018)
+          add('auth', 1, 'Micro-flutuação palpebral presente (jitter ' + FA.earJitter.toFixed(3) + ') — olho vivo');
+        if (talking && FA.mouthJitter < .012)
+          add('syn', 2, 'Trilha contém FALA, mas os lábios não variam de forma correspondente — desincronia labial (dublagem/reencenação)');
+        else if (talking && FA.mouthJitter > .03)
+          add('auth', 1, 'Movimento labial acompanha a fala da trilha');
+      } else add('info', 0, 'Auditoria facial: cobertura curta (' + FA.tCovered.toFixed(1) + ' s) — sinais oculares não pontuam');
+    }
+
     if (AC && AC.ok){
       if (AC.shelfHz) add('syn', 1, 'Trilha: banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz — corte de síntese/codec');
       if (AC.noiseFloorDb < -65) add('syn', 1, 'Trilha: piso de ruído ultra-limpo (' + AC.noiseFloorDb.toFixed(0) + ' dB)');
@@ -1852,6 +1876,107 @@ const ForensicCore = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
+   FACEAUDIT — auditoria facial da bancada DEFENSIVA
+   Reusa o mesmo MediaPipe FaceMesh da bancada ofensiva para auditar
+   quadros do vídeo: piscadas (EAR), micro-flutuação ocular e
+   variação labial. Simetria do projeto: quem dirige a face sintética
+   é quem audita a supostamente real.
+════════════════════════════════════════════════════════════════ */
+const FaceAudit = (() => {
+  let fm = null, state = 'idle', lastLm = null;
+
+  async function ensureMesh(){
+    if (state === 'on') return true;
+    if (state !== 'idle') return false;
+    state = 'loading';
+    try {
+      await new Promise((res, rej) => {
+        if (self.FaceMesh) return res();
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+        s.onload = res;
+        s.onerror = () => rej(new Error('CDN indisponível'));
+        document.head.appendChild(s);
+        setTimeout(() => rej(new Error('timeout')), 15000);
+      });
+      fm = new self.FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
+      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: .5, minTrackingConfidence: .5 });
+      fm.onResults(r => { lastLm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; });
+      state = 'on';
+      return true;
+    } catch { state = 'fail'; return false; }
+  }
+
+  /* EAR (abertura palpebral) e boca (13/14 sobre 61/291), normalizados */
+  function frameMetrics(lm, w, h){
+    const P = i => ({ x: lm[i].x * w, y: lm[i].y * h });
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const earOne = (up, lo, h1, h2) => d(P(up), P(lo)) / Math.max(1, d(P(h1), P(h2)));
+    const ear = (earOne(159, 145, 33, 133) + earOne(386, 374, 362, 263)) / 2;
+    const mouth = d(P(13), P(14)) / Math.max(1, d(P(61), P(291)));
+    return { ear, mouth };
+  }
+
+  async function audit(frames, emit){
+    if (!frames || frames.length < 4) return { ok: false, why: 'janela insuficiente' };
+    if (!(await ensureMesh())) return { ok: false, why: 'MediaPipe indisponível (CDN?)' };
+    const samples = [];
+    for (const f of frames){
+      lastLm = null;
+      try { await fm.send({ image: f.cv }); } catch { /* pula quadro */ }
+      if (lastLm){
+        const m = frameMetrics(lastLm, f.cv.width, f.cv.height);
+        samples.push({ t: f.t, ear: m.ear, mouth: m.mouth });
+      }
+      await sleep(0);
+    }
+    if (samples.length < 4) return { ok: false, why: 'rosto não localizado nos quadros' };
+
+    /* normalização por janela (remove calibração do sujeito/distância) */
+    let blinks = 0, earsN = [], mouths = [], tCovered = 0;
+    const GAP = .6, MIN_B = 4;                    /* dt > 0.6 s abre nova janela */
+    let cur = [];
+    const flush = () => {
+      if (cur.length >= MIN_B){
+        const med = a => [...a].sort((x, y) => x - y)[a.length >> 1];
+        const eMed = Math.max(.02, med(cur.map(s => s.ear)));
+        const mMed = Math.max(.02, med(cur.map(s => s.mouth)));
+        let inDip = false;
+        for (const s of cur){
+          const eN = s.ear / eMed;
+          earsN.push(eN);
+          mouths.push(s.mouth / mMed);
+          if (eN < .72) inDip = true;             /* mergulho palpebral */
+          else if (inDip && eN > .88){ blinks++; inDip = false; }  /* e recuperação */
+          else if (eN > .82) inDip = false;
+        }
+        tCovered += (cur[cur.length - 1].t - cur[0].t);            /* cobertura SOMADA */
+      }
+      cur = [];
+    };
+    for (let i = 0; i < samples.length; i++){
+      if (i && samples[i].t - samples[i - 1].t > GAP) flush();
+      cur.push(samples[i]);
+    }
+    flush();
+
+    const dev = arr => {
+      if (arr.length < 3) return 0;
+      const m = arr.reduce((a, v) => a + v, 0) / arr.length;
+      return Math.sqrt(arr.reduce((a, v) => a + (v - m) * (v - m), 0) / arr.length);
+    };
+    const quiet = earsN.filter(v => v > .8);      /* jitter exclui piscadas */
+    const earJitter = dev(quiet);
+    const mouthJitter = dev(mouths);
+    emit && emit('auditoria facial: ' + samples.length + ' quadros · ' + tCovered.toFixed(1) +
+      ' s de cobertura · piscadas ' + blinks + ' · micro-flutuação ocular ' + earJitter.toFixed(3) +
+      ' · variação labial ' + mouthJitter.toFixed(3), 'plain');
+    return { ok: true, frames: samples.length, blinks, earJitter, mouthJitter, tCovered };
+  }
+  return { audit };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
    VIDEOLAB — extração de quadros + ELA (camada de UI/DOM)
 ════════════════════════════════════════════════════════════════ */
 const VideoLab = (() => {
@@ -1924,6 +2049,31 @@ const VideoLab = (() => {
         await sleep(0);
       }
       bar.end();
+
+      /* ── v2 · JANELAS CONTÍGUAS para a auditoria facial ──
+         piscada dura 100–300 ms: quadros esparsos jamais a capturam */
+      const burstFrames = [];
+      const NB = 3, LEN = 10, STEP = 1 / 15;
+      const bw2 = 256, bh2 = Math.max(2, Math.round(256 * vh / vw));
+      const bc = document.createElement('canvas'); bc.width = bw2; bc.height = bh2;
+      const bcx = bc.getContext('2d');
+      const bbar = progressBar('DEFENSIVA v2 · auditoria facial: ' + (NB * LEN) + ' quadros em ' + NB + ' janelas contíguas');
+      for (let b = 0; b < NB; b++){
+        const t0 = dur * (.18 + .32 * b);
+        for (let i = 0; i < LEN; i++){
+          const t = Math.min(t0 + i * STEP, Math.max(0, dur - .05));
+          v.currentTime = t;
+          await once(v, 'seeked', 5000);
+          bcx.drawImage(v, 0, 0, bw2, bh2);
+          const cv = document.createElement('canvas'); cv.width = bw2; cv.height = bh2;
+          cv.getContext('2d').drawImage(bc, 0, 0);
+          burstFrames.push({ t, cv });
+          bbar.update(b * LEN + i + 1, NB * LEN);
+          await sleep(0);
+        }
+      }
+      bbar.end();
+
       const ebar = progressBar('ELA: recomprimindo quadros em JPEG e medindo resíduos');
       for (let i = 0; i < frames.length; i++){
         const e = await elaOf(frames[i].thumb);
@@ -1945,8 +2095,16 @@ const VideoLab = (() => {
       }
       const am = acts.reduce((x, y) => x + y, 0) / (acts.length || 1);
       const acv = Math.sqrt(acts.reduce((x, y) => x + (y - am) * (y - am), 0) / (acts.length || 1)) / (am || 1);
+
+      /* v2 · auditoria facial (piscadas / olho morto / lábios × trilha) */
+      let face = { ok: false, why: 'não executada' };
+      if (burstFrames.length){
+        try { face = await FaceAudit.audit(burstFrames, emit); }
+        catch (e){ face = { ok: false, why: (e && e.message) || 'erro' }; }
+      }
+      if (!face.ok) emit && emit('auditoria facial indisponível — ' + face.why, 'warn');
       cleanup();
-      return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv };
+      return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv, face };
     } catch (e){
       cleanup();
       return { ok:false, why: (e && e.message) || 'erro de decodificação' };
@@ -4234,7 +4392,7 @@ const App = (() => {
                        frames: fr.frames.map(f => ({ t: f.t, ela: f.ela, elaP95: f.elaP95 })),
                        elaMean: em, elaCV: ecv,
                        p95Mean: fr.frames.reduce((a, f) => a + f.elaP95, 0) / fr.frames.length,
-                       activityMean: fr.activityMean, activityCV: fr.activityCV };
+                       activityMean: fr.activityMean, activityCV: fr.activityCV, face: fr.face };
             }
           : undefined
       });
