@@ -2476,6 +2476,11 @@ const FaceForge = (() => {
     MESH.sig = sig;
     MESH.cx = b.cx; MESH.cy = b.y + b.h * .52;
     MESH.rx = b.w * .64; MESH.ry = b.h * .68;
+    /* v8.1: malha 15×19 (era 11×13) — o dobro de células: a queda da
+       mandíbula e os cantos da boca passam a amostrar o rig com
+       resolução suficiente (fim do "movimento em degraus" e do lado
+       que aparentava mover menos que o outro) */
+    MESH.u = 15; MESH.v = 19;
     MESH.pts = [];
     for (let j = 0; j <= MESH.v; j++)
       for (let i = 0; i <= MESH.u; i++){
@@ -2551,13 +2556,16 @@ const FaceForge = (() => {
       xm: g.mouth.x,   ym: g.lipTop.y
     };
     rp.halfW = Math.max(8, g.mouthW * .46);
-    /* amplitude da mandíbula: fala comum (mouth ≈ .3–.5) agora desce ~4–7% da altura do rosto
-       (antes ~3–5%, curto demais), e vogal bem aberta chega a ~13% */
-    rp.drop = Math.min(rv.mouth * b.h * .135, b.h * .17);
+    /* v8.1 · amplitude +15% e teto +12%: fala comum desce ~5–8% da altura
+       do rosto — o maxilar passa a ser LIDO como movimento, não sussurrado */
+    rp.drop = Math.min(rv.mouth * b.h * .155, b.h * .19);
 
     const smile = Math.max(0, rv.cur.smile);
     const asym = Math.max(-.5, Math.min(.5, rv.asym + rv.twitch * .12)) * Math.max(0, smile - .12) / .72;
     rp.asym = asym; rp.smile = smile; rp.wide = rv.width;
+    /* v8.1 · assimetria dinâmica da abertura (±5% entre os lados, oscilando
+       devagar): a simetria perfeita de máquina é o que mais denuncia síntese */
+    rp.dropAsym = .05 * Math.sin(rv.lastT * .6 + 1.7);
 
     const fOut = smile * .20;
     const lift = smile * b.h * .030;
@@ -2568,8 +2576,11 @@ const FaceForge = (() => {
     const spread = rv.width * g.mouthW * .08;
     rp.cLdx = -g.mouthW * fOut * (1 + asym) - spread;
     rp.cRdx =  g.mouthW * fOut * (1 - asym) + spread;
-    rp.cLdy = -lift * (1 + asym);
-    rp.cRdy = -lift * (1 - asym);
+    /* v8.1 · os cantos ACOMPANHAM a mandíbula: descem 18% do drop durante
+       a fala (antes só mexiam no sorriso — cantos "mortos" enquanto falava) */
+    const cornerDrop = rp.drop * .18;
+    rp.cLdy = -lift * (1 + asym) + cornerDrop;
+    rp.cRdy = -lift * (1 - asym) + cornerDrop;
 
     rp.browDy = -(rv.cur.brow + rv.emph * .34 + rv.flash * .45) * b.h * .030;
     rp.browL = { x: g.browL.x, y: g.browL.y };
@@ -2610,7 +2621,14 @@ const FaceForge = (() => {
     const enter = ss(s - 7, s + 2, y);
     if (enter <= 0) return 0;
     const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s));
-    return rp.drop * enter * (1 - .18 * t2);
+    /* v8.1 · perfil de ROTAÇÃO: o queixo desce ~45% mais que os lábios
+       (a mandíbula gira em torno dos côndilos, não desliza), a queda
+       atenua em arco rumo às laterais e carrega a micro-assimetria */
+    const rot = .92 + .45 * t2;
+    const b = rp.box;
+    const lat = 1 - .38 * clamp01(Math.abs(x - b.cx) / (b.w * .5));
+    const side = x < b.cx ? (1 + rp.dropAsym) : (1 - rp.dropAsym);
+    return rp.drop * enter * rot * lat * side;
   }
 
   function rigDisplace(x, y, p){
@@ -2729,7 +2747,10 @@ const FaceForge = (() => {
         const mB = Math.abs(dB.x - bq.x) + Math.abs(dB.y - bq.y);
         const mC = Math.abs(dC.x - c.x) + Math.abs(dC.y - c.y);
         const mD = Math.abs(dD.x - d.x) + Math.abs(dD.y - d.y);
-        if (Math.max(mA, mB, mC, mD) < 0.25) continue;
+        /* v8.1: limiar 0.25 → 0.15 — células com movimento sutil não são
+           mais descartadas (o descarte desigual entre os lados da boca
+           também contribuía para a assimetria percebida) */
+        if (Math.max(mA, mB, mC, mD) < 0.15) continue;
         drawTri(a, bq, c, dA, dB, dC);
         drawTri(a, c, d, dA, dC, dD);
       }
