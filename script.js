@@ -1,25 +1,7 @@
 'use strict';
-/* ═══════════════════════════════════════════════════════════════════
-   script.js — SYNTH::DETECT v6.10
-   BOCA v6 — dentes que seguem o movimento:
-   · BUG: teethH era max(4, 0.30·drop) — tira ~4px quase constante
-     colada em posição fixa → dentes "parados" no meio do movimento
-   · CORREÇÃO: arco dental de TAMPO NATURAL (~2.2% da altura do
-     rosto), com teto da cavidade — o arco tem seu tamanho; o que
-     cresce é o vão escuro ABAIXO dele. A distância dente→lábio
-     inferior é o que anima; os dentes agora seguem a boca
-   · separações interdentais (arco lê como dentes individuais)
-   · fade-in gradual do arco (open .16→.26) — sem pop no limiar
-
-   Mantido de v6.9: bloco facial dentro da matriz da cabeça
-   (alinhamento por construção), interior nítido, amplitude
-   compressiva, língua, wet-line.
-
-   Sumário:
-     CONFIG/Util · PixelArt · Terminal · ForensicCore (detecção,
-     DOM-free) · VideoLab · PixelLab · ForgeArtifacts · DSP da FORGE
-     · VoiceForge · FaceForge (live · photo · REVIVER v9) · App
-═════════════════════════════════════════════════════════════════ */
+/* SYNTH::DETECT v7.0 — inspeção local e animação fotográfica.
+   FORGE::FACE preserva textura da foto e admite calibração manual.
+   Não há modelo neural generativo nem classificador de deepfake neste build. */
 
 const CONFIG = {
   logPacingMs: 100,
@@ -761,7 +743,7 @@ const ForensicCore = (() => {
     const signals = [];
     const add = (dir, weight, label) => signals.push({ dir, weight, label });
     if (C.found && C.declaresAI) add('syn', 4, 'C2PA declara fonte algorítmica (trainedAlgorithmicMedia)');
-    else if (C.found) add('auth', 2, 'Manifesto C2PA presente — proveniência assinada');
+    else if (C.found) add('info', 0, 'Estrutura C2PA encontrada — assinatura e cadeia de confiança não verificadas');
     else add('info', 0, 'Sem manifesto C2PA (comum hoje — não pontua)');
     if (H.genParams) add('syn', 4, 'Parâmetros de geração embutidos (tEXt "' + H.genParams + '")');
     const fams = [...new Set(H.hits.filter(h => h.cat === 'gen').map(h => h.label))];
@@ -771,7 +753,7 @@ const ForensicCore = (() => {
     }
     if (H.editHits && H.editHits.length)
       add('info', 0, 'Rastro de edição: ' + [...new Set(H.editHits.map(h => h.label))].join(', '));
-    if (E.source === 'none') add('syn', 1, 'Ausência total de EXIF (geração OU strip por rede social)');
+    if (E.source === 'none') add('info', 0, 'EXIF ausente — comum em capturas e arquivos de redes sociais; não indica IA');
     else if (E.tags.Make || E.tags.Model)
       add('auth', 2, 'EXIF de dispositivo de captura: ' + [E.tags.Make, E.tags.Model].filter(Boolean).join(' '));
     if (S.trailing > 0) add('syn', 1, S.trailing + ' bytes anexados após o fim da imagem');
@@ -787,8 +769,8 @@ const ForensicCore = (() => {
     else if (score >= 1) cls = 'warn';
     else cls = 'ok';
     const COPY = {
-      bad:  { stamp:'SINTÉTICA PROVÁVEL', line:'Múltiplos indícios de geração sintética foram localizados neste arquivo.' },
-      info: { stamp:'SÍNTESE DECLARADA',  line:'O manifesto C2PA declara que a imagem foi gerada algoritmicamente — proveniência preservada. Este é o cenário de transparência que o padrão propõe.' },
+      bad:  { stamp:'INDÍCIOS DE SÍNTESE', line:'Múltiplos indícios de geração sintética foram localizados neste arquivo.' },
+      info: { stamp:'SÍNTESE DECLARADA',  line:'O manifesto C2PA declara que a imagem foi gerada algoritmicamente — declaração encontrada sem validação criptográfica neste projeto.' },
       warn: { stamp:'INCONCLUSIVO',       line:'Indícios parciais. Não é possível afirmar nem descartar síntese com os dados disponíveis neste arquivo.' },
       ok:   { stamp:'SEM INDÍCIOS',       line:'Nenhuma assinatura de síntese localizada. Atenção: ausência de indícios não é prova de autenticidade.' }
     };
@@ -1301,7 +1283,7 @@ const ForensicCore = (() => {
          (totE > 0 ? (hfE / totE * 100).toFixed(1) : '0') + '%', 'plain');
     if (AC.shelfHz)
       emit('banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz em conteúdo decodificado a ' + (sr / 1000).toFixed(1) +
-           ' kHz — corte consistente com síntese/codec em taxa reduzida', 'warn');
+           ' kHz — corte de banda compatível com codec/filtragem; não identifica IA', 'warn');
     else if (AC.bandwidthHz > 15000)
       emit('espectro pleno até ' + (AC.bandwidthHz / 1000).toFixed(1) + ' kHz — sem corte suspeito', 'ok');
     AC.flatness = flatSum / frames;
@@ -1340,7 +1322,7 @@ const ForensicCore = (() => {
       AC.f0 = { median: med, mean: m, sd, cv: sd / m, min: f0s[0], max: f0s[f0s.length - 1] };
       emit('F0 mediano: ' + med.toFixed(0) + ' Hz · CV ' + AC.f0.cv.toFixed(3), 'plain');
       if (AC.f0.cv < 0.06)
-        emit('prosódia anormalmente monotônica (CV de F0 = ' + AC.f0.cv.toFixed(3) + ') — traço comum de TTS', 'warn');
+        emit('prosódia pouco variável (sinal inespecífico) (CV de F0 = ' + AC.f0.cv.toFixed(3) + ') — traço comum de TTS', 'warn');
     } else AC.f0 = null;
     if (AC.f0 === null) emit('voz vozeada insuficiente para estatísticas de F0', 'plain');
 
@@ -1490,12 +1472,12 @@ const ForensicCore = (() => {
     const add = (dir, weight, label) => signals.push({ dir, weight, label });
     scoreTieredSigs(SG, add);
     if (C.found && C.declaresAI) add('syn', 4, 'C2PA declara fonte algorítmica (trainedAlgorithmicMedia)');
-    else if (C.found) add('auth', 2, 'Manifesto C2PA presente — proveniência assinada');
+    else if (C.found) add('info', 0, 'Estrutura C2PA encontrada — assinatura e cadeia de confiança não verificadas');
     else add('info', 0, 'Sem manifesto C2PA (comum — não pontua)');
     if (AC && AC.ok){
-      if (AC.shelfHz) add('syn', 1, 'Banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz — corte consistente com síntese/codec em taxa reduzida');
-      if (AC.noiseFloorDb < -65) add('syn', 1, 'Piso de ruído ultra-limpo (' + AC.noiseFloorDb.toFixed(0) + ' dB) — silêncio "estéril"');
-      if (AC.f0 && AC.f0.cv < 0.06) add('syn', 1, 'Prosódia anormalmente monotônica (CV de F0 = ' + AC.f0.cv.toFixed(3) + ')');
+      if (AC.shelfHz) add('info', 0, 'Banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz — corte de banda compatível com codec/filtragem; não identifica IA');
+      if (AC.noiseFloorDb < -65) add('info', 0, 'Piso de ruído baixo (pode decorrer de redução de ruído) (' + AC.noiseFloorDb.toFixed(0) + ' dB) — silêncio "estéril"');
+      if (AC.f0 && AC.f0.cv < 0.06) add('info', 0, 'Prosódia pouco variável (sinal inespecífico) (CV de F0 = ' + AC.f0.cv.toFixed(3) + ')');
       if (AC.noiseFloorDb > -60 && AC.floorStd !== null && AC.floorStd > 0.8)
         add('auth', 1, 'Room tone natural: piso de ruído presente e flutuante');
       if (AC.clipping > 0.00005) add('info', 0, 'Clipping presente (' + (AC.clipping * 100).toFixed(3) + '%) — evidência fraca de captação real');
@@ -1509,8 +1491,8 @@ const ForensicCore = (() => {
     else if (score >= 1) cls = 'warn';
     else cls = 'ok';
     const COPY = {
-      bad:  { stamp:'ÁUDIO SINTÉTICO PROVÁVEL', line:'Múltiplos indícios de síntese de áudio (voz clonada ou música gerada) foram localizados neste arquivo.' },
-      info: { stamp:'SÍNTESE DECLARADA', line:'Assinatura no arquivo declara que o conteúdo foi gerado algoritmicamente — o cenário de transparência que o padrão C2PA propõe.' },
+      bad:  { stamp:'INDÍCIOS DE SÍNTESE', line:'Múltiplos indícios de síntese de áudio (voz clonada ou música gerada) foram localizados neste arquivo.' },
+      info: { stamp:'SÍNTESE DECLARADA', line:'Assinatura no arquivo declara que o conteúdo foi gerado algoritmicamente — declaração encontrada sem validação criptográfica neste projeto.' },
       warn: { stamp:'INCONCLUSIVO', line:'Indícios parciais. Não é possível afirmar nem descartar síntese com os dados disponíveis neste arquivo.' },
       ok:   { stamp:'SEM INDÍCIOS', line:'Nenhuma assinatura de síntese localizada. Atenção: em áudio, a ausência de indícios está longe de provar autenticidade.' }
     };
@@ -1731,19 +1713,19 @@ const ForensicCore = (() => {
     const add = (dir, weight, label) => signals.push({ dir, weight, label });
     scoreTieredSigs(SG, add);
     if (C.found && C.declaresAI) add('syn', 4, 'C2PA declara fonte algorítmica (trainedAlgorithmicMedia)');
-    else if (C.found) add('auth', 2, 'Manifesto C2PA presente — proveniência assinada');
+    else if (C.found) add('info', 0, 'Estrutura C2PA encontrada — assinatura e cadeia de confiança não verificadas');
     else add('info', 0, 'Sem manifesto C2PA (comum — não pontua)');
     if (QT.length) add('auth', 2, 'Metadados de captura QuickTime: ' + QT.map(t => t.key + ' "' + t.value + '"').join(', '));
     if (S.probe && S.probe.gpmd) add('auth', 2, 'Telemetria GPMD (GoPro) embutida — captura de câmera real');
     if (!R.metaCount && !QT.length && !(S.probe && S.probe.gpmd))
-      add('syn', 1, 'Ausência total de metadados de captura (geração OU strip por re-encode)');
+      add('info', 0, 'Metadados de captura ausentes — remoção por re-encode é comum; não indica IA');
     if (F && F.ok){
       add('info', 0, 'ELA médio dos quadros: ' + F.elaMean.toFixed(2) + ' (CV ' + F.elaCV.toFixed(3) + ') — informativo');
     }
     if (AC && AC.ok){
-      if (AC.shelfHz) add('syn', 1, 'Trilha: banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz — corte de síntese/codec');
-      if (AC.noiseFloorDb < -65) add('syn', 1, 'Trilha: piso de ruído ultra-limpo (' + AC.noiseFloorDb.toFixed(0) + ' dB)');
-      if (AC.f0 && AC.f0.cv < 0.06) add('syn', 1, 'Trilha: prosódia anormalmente monotônica (CV de F0 = ' + AC.f0.cv.toFixed(3) + ')');
+      if (AC.shelfHz) add('info', 0, 'Trilha: banda efetiva ≈ ' + (AC.shelfHz / 1000).toFixed(1) + ' kHz — corte de codec/filtragem; não identifica IA');
+      if (AC.noiseFloorDb < -65) add('info', 0, 'Trilha: piso de ruído baixo (pode decorrer de redução de ruído) (' + AC.noiseFloorDb.toFixed(0) + ' dB)');
+      if (AC.f0 && AC.f0.cv < 0.06) add('info', 0, 'Trilha: prosódia pouco variável (sinal inespecífico) (CV de F0 = ' + AC.f0.cv.toFixed(3) + ')');
       if (AC.noiseFloorDb > -60 && AC.floorStd !== null && AC.floorStd > 0.8)
         add('auth', 1, 'Trilha: room tone natural e flutuante');
     }
@@ -1756,10 +1738,10 @@ const ForensicCore = (() => {
     else if (score >= 1) cls = 'warn';
     else cls = 'ok';
     const COPY = {
-      bad:  { stamp:'VÍDEO SINTÉTICO PROVÁVEL', line:'Múltiplos indícios de geração sintética (vídeo IA ou manipulação de face) foram localizados neste arquivo.' },
-      info: { stamp:'SÍNTESE DECLARADA', line:'Assinatura no arquivo declara que o conteúdo foi gerado algoritmicamente — o cenário de transparência que o padrão C2PA propõe.' },
+      bad:  { stamp:'INDÍCIOS DE SÍNTESE', line:'Múltiplos indícios de geração sintética (vídeo IA ou manipulação de face) foram localizados neste arquivo.' },
+      info: { stamp:'SÍNTESE DECLARADA', line:'Assinatura no arquivo declara que o conteúdo foi gerado algoritmicamente — declaração encontrada sem validação criptográfica neste projeto.' },
       warn: { stamp:'INCONCLUSIVO', line:'Indícios parciais. Não é possível afirmar nem descartar síntese com os dados disponíveis neste arquivo.' },
-      ok:   { stamp:'SEM INDÍCIOS', line:'Nenhuma assinatura de síntese localizada — e há sinais de cadeia de captura real. Ausência de indícios não é prova absoluta.' }
+      ok:   { stamp:'SEM INDÍCIOS', line:'Nenhuma assinatura de síntese localizada. O resultado é inconclusivo quanto à autenticidade; não há classificador neural neste projeto.' }
     };
     return { cls, score, signals, copy: COPY[cls],
              provenance: C.found ? (C.declaresAI ? 'DECLARADA (IA)' : 'DECLARADA') : 'NÃO ENCONTRADA' };
@@ -2004,9 +1986,12 @@ const PixelLab = (() => {
 ════════════════════════════════════════════════════════════════ */
 const ForgeArtifacts = (() => {
   const list = $('#artList'), empty = $('#artEmpty');
+  const urls = new Set();
+  window.addEventListener('pagehide', () => { urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); });
   function add(blob, name, kind){
     if (empty) empty.hidden = true;
     const url = URL.createObjectURL(blob);
+    urls.add(url);
     const card = document.createElement('div');
     card.className = 'art-card';
     const media = kind === 'audio'
@@ -2025,7 +2010,14 @@ const ForgeArtifacts = (() => {
       const a = document.createElement('a');
       a.href = url; a.download = name; a.click();
     });
+    card.dataset.objectUrl = url;
     list.prepend(card);
+    const cards = [...list.querySelectorAll('.art-card')];
+    cards.slice(20).forEach(old => {
+      const u = old.dataset.objectUrl;
+      old.querySelectorAll('video,audio').forEach(media => { media.pause(); media.removeAttribute('src'); media.load(); });
+      URL.revokeObjectURL(u); urls.delete(u); old.remove();
+    });
   }
   return { add };
 })();
@@ -2290,1382 +2282,658 @@ const VoiceForge = (() => {
   return { init };
 })();
 
-/* ═══════════════════════════════════════════════════════════════
-   FACEFORGE v9 (v6.10) — reencenação facial
-   BOCA v6 — dentes que seguem o movimento (a correção deste build):
-   · ANTES: teethH = max(4, 0.30·drop) — tira ~4px quase constante
-     em toda a faixa de fala (drop 15–42px → 4,5–12,6px), sempre no
-     mesmo ponto proporcional do vão → dentes "parados"
-   · AGORA: arco dental de altura NATURAL constante (~2.2% da altura
-     do rosto), com teto da cavidade — o arco tem seu tamanho; o que
-     anima é o vão escuro ABAIXO. Fala pequena = dentes + fresta;
-     fala ampla = arco inteiro + vão escuro + língua. Os dentes
-     seguem a boca porque a distância dente→lábio inferior respira
-   · separações interdentais (5 linhas sutis, arco lê como dentes
-     individuais) · fade-in gradual do arco (open .16→.26)
-════════════════════════════════════════════════════════════════ */
+/* FORGE::FACE v7 — deformação inversa, textura fotográfica e calibração explícita.
+   Não gera dentes, língua ou identidade. WebGL é opcional; Canvas 2D é o fallback. */
 const FaceForge = (() => {
-  const TAU = Math.PI * 2;
-  const ss = (a, b, x) => { x = Math.min(1, Math.max(0, (x - a) / (b - a))); return x * x * (3 - 2 * x); };
-  const clamp01 = x => Math.min(1, Math.max(0, x));
-
-  const video = $('#ffVideo'), cvs = $('#ffCanvas'), empty = $('#ffEmpty');
-  const $st = $('#ffStatus'), $ro = $('#ffReadout');
-  const fxBtns = $$('#ffFx .chip');
-  const btnPuppet = $('#ffFx [data-fx="puppet"]');
-  const btnSwap   = $('#ffFx [data-fx="swap"]');
-  const $photoBtn = $('#ffPhotoBtn'), $photoIn = $('#ffPhotoInput'), $consent = $('#ffConsent');
-  const $reviveBtn = $('#ffRevive'), $voiceBtn = $('#ffVoice');
-  const moodBtns = $$('#ffMood .chip');
-  const ctx = cvs.getContext('2d');
+  const cvs = $('#ffCanvas'), ctx = cvs.getContext('2d');
+  const guide = $('#ffGuide'), gx = guide.getContext('2d');
+  const video = $('#ffVideo'), empty = $('#ffEmpty'), stage = $('#ffStage');
+  const status = $('#ffStatus'), readout = $('#ffReadout');
+  const controls = ['ffRevive','ffVoice','ffAudioBtn','ffCalibrate','ffCompare','ffShot','ffClip','ffMask'];
   const fx = { puppet:false, swap:false, smooth:false, glitch:false };
-  let stream = null, running = false, lm = null, fm = null, fmState = 'idle';
-  let maskCv = null, rec = null, W = 0, H = 0, seq = 0;
-  let mode = 'live';
-  let photoCv = null, photoName = '';
-  let graft = { dx: 0, dy: 0, s: 1.05, rot: 0.03 };
-  const tiny = document.createElement('canvas');
-  const mtmp = document.createElement('canvas');
-  const headCv = document.createElement('canvas');
-  const radial = document.createElement('canvas');
-  const workCv = document.createElement('canvas');
-  let wctx = null;
-  let headMaskCv = null, headSig = '';
+  const clamp = (x, a=0, b=1) => Math.min(b, Math.max(a, x));
+  const smooth = (a,b,x) => { const u=clamp((x-a)/(b-a)); return u*u*(3-2*u); };
+  const lerp = (a,b,t) => a+(b-a)*t;
+  const TAU = 2*Math.PI;
+  const TOP = [78,191,80,81,82,13,312,311,310,415,308];
+  const BOT = [78,95,88,178,87,14,317,402,318,324,308];
+  let W=0,H=0,mode='idle',photo=null,photoName='',camera=null,renderer=null;
+  let running=false,raf=0,generation=0,lm=null,manual=null,geometry=null,compare=false;
+  let fm=null,meshPromise=null,meshSend=Promise.resolve(),meshGeneration=0,tracking=false;
+  let mask=null,sequence=0,recording=null,recordTimer=0,calibration=null;
+  let audioContext=null,analyser=null,audioOut=null,mic=null,audioSource=null,audioBuffer=null;
+  let audioName='',audioMode='demo',audioLoading=false,photoLoading=false,cameraLoading=false,micLoading=false,clipLoading=false;
+  let tbuf=null,fbuf=null,audioStarted=0,audioLevel=0,noiseFloor=.008,peak=.05;
+  const anim={ on:false, t0:0,last:0,mouth:0,wide:0,blink:0,nextBlink:2,blinkStart:-2,
+    mood:'neutro',smile:0,brow:0 };
+  let frameCount=0,fpsStart=0,lastStats=0;
 
-  /* ── estado do REVIVER ── */
-  const MOODS = {
-    neutro:   { brow:.06,  smile:.10, squint:.02, knit:0,   wide:0 },
-    sorriso:  { brow:.12,  smile:.72, squint:.30, knit:0,   wide:0 },
-    surpresa: { brow:.85,  smile:.05, squint:-.20, knit:0,  wide:1 },
-    serio:    { brow:-.26, smile:.02, squint:.14, knit:.38, wide:0 }
-  };
-  const rv = {
-    on:false, voice:false, t0:0, lastT:0,
-    mouth:.04, width:0, velM:0, velW:0,
-    syls:null, si:0, hitSi:-1, sylsEnd:0, restUntil:0,
-    blinkStart:-9, blinkDur:.15, nextBlink:1.2, blink:0,
-    gazeX:0, gazeY:0, gazeTX:0, gazeTY:0, nextSac:.6, sacT:0, sacDur:.1,
-    hfX:0, velH:0,
-    moodPreset:'auto', asym:0,
-    cur:{ ...MOODS.neutro }, tgt:{ ...MOODS.neutro }, nextMood:2.5,
-    flashT:-9, nextFlash:4, flash:0,
-    twitchT:-9, nextTwitch:5, twitch:0, twitchSide:1,
-    emph:0, nod:0, prevRms:0,
-    headT:{rot:0,tx:0,ty:0,br:1,pvx:0,pvy:0},
-    analyser:null, ac:null, micStream:null, tbuf:null, fbuf:null
-  };
+  const setStatus = t => { status.textContent=t; };
+  const message = t => { readout.textContent=t; };
+  const point = i => ({x:lm[i].x*W,y:lm[i].y*H});
+  const mid = (a,b) => ({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+  const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
 
-  const P = i => { const p = lm[i]; return { x: p.x * W, y: p.y * H }; };
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const setSt = t => { $st.textContent = t; };
-
-  function faceBox(){
-    if (lm){
-      const t = P(10), c = P(152), l = P(234), r = P(454);
-      const x = l.x, y = t.y, w = r.x - l.x, h = c.y - t.y;
-      return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 };
+  function boxForFace(){
+    if(lm){
+      const pts=[10,152,234,454,127,356].map(point);
+      const x=Math.min(...pts.map(p=>p.x)),y=Math.min(...pts.map(p=>p.y));
+      const w=Math.max(...pts.map(p=>p.x))-x,h=Math.max(...pts.map(p=>p.y))-y;
+      return {x,y,w,h,cx:x+w/2,cy:y+h/2};
     }
-    return { x: W * 0.30, y: H * 0.12, w: W * 0.40, h: H * 0.68, cx: W * 0.5, cy: H * 0.46 };
+    if(manual){
+      const width=distance(manual[0],manual[1])*2.5;
+      const height=distance(manual[0],manual[1])*3.1,c=mid(manual[0],manual[1]);
+      return {x:c.x-width/2,y:c.y-height*.70,w:width,h:height,cx:c.x,cy:c.y-height*.20};
+    }
+    return {x:W*.3,y:H*.13,w:W*.4,h:H*.65,cx:W*.5,cy:H*.455};
   }
 
-  /* geometria: landmarks (com íris e lábios internos) OU fallback */
-  function faceGeom(box){
-    if (lm){
-      const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-      const d = dist;
-      const eyeL = { c: mid(P(33), P(133)),  w: d(P(33), P(133)),  h: d(P(159), P(145)) / 2 };
-      const eyeR = { c: mid(P(362), P(263)), w: d(P(362), P(263)), h: d(P(386), P(374)) / 2 };
-      return {
-        box,
-        mouth: mid(P(13), P(14)), upperLip: P(0), chin: P(152),
-        lipTop: P(13), lipBot: P(14), lowerLip: P(17),
-        mouthW: d(P(61), P(291)), cornerL: P(61), cornerR: P(291),
-        eyeL, eyeR,
-        browL: P(105), browR: P(334), innerL: P(55), innerR: P(285),
-        cheekL: P(205), cheekR: P(425),
-        hingeL: P(172), hingeR: P(397),
-        outL: P(33), outR: P(263),
-        irisL: lm.length > 477 ? P(468) : null,
-        irisR: lm.length > 477 ? P(473) : null
+  function buildGeometry(){
+    if(!manual&&!lm){geometry=null;return;}
+    const b=boxForFace();
+    let left=manual?manual[0]:point(78),right=manual?manual[1]:point(308);
+    if(left.x>right.x) [left,right]=[right,left];
+    const c=mid(left,right),span=distance(left,right);
+    if(span<4||b.h<12){geometry=null;return;}
+    const axis={x:(right.x-left.x)/span,y:(right.y-left.y)/span};
+    const normal={x:-axis.y,y:axis.x};
+    const local=p=>({x:(p.x-c.x)*axis.x+(p.y-c.y)*axis.y,
+      y:(p.x-c.x)*normal.x+(p.y-c.y)*normal.y});
+    let top,bottom;
+    if(manual){
+      const u=local(manual[2]).y,d=local(manual[3]).y;
+      top=Array.from({length:11},(_,i)=>u*(1-(-1+i/5)**2));
+      bottom=Array.from({length:11},(_,i)=>d*(1-(-1+i/5)**2));
+    }else{
+      const resample=ids=>{
+        const ps=ids.map(i=>local(point(i))).sort((a,b)=>a.x-b.x);
+        return Array.from({length:11},(_,i)=>{
+          const x=(-1+i/5)*span/2;
+          let k=0;while(k<ps.length-2&&ps[k+1].x<x) k++;
+          return lerp(ps[k].y,ps[k+1].y,clamp((x-ps[k].x)/Math.max(.001,ps[k+1].x-ps[k].x)));
+        });
       };
+      top=resample(TOP);bottom=resample(BOT);
     }
-    const x = box.x, y = box.y, w = box.w, h = box.h;
-    const mkEye = cx => ({ c: { x: cx, y: y + h * .40 }, w: w * .18, h: w * .032 });
-    return {
-      box,
-      mouth: { x: box.cx, y: y + h * .70 }, upperLip: { x: box.cx, y: y + h * .665 }, chin: { x: box.cx, y: y + h * .97 },
-      lipTop: { x: box.cx, y: y + h * .678 }, lipBot: { x: box.cx, y: y + h * .722 }, lowerLip: { x: box.cx, y: y + h * .748 },
-      mouthW: w * .36, cornerL: { x: box.cx - w * .18, y: y + h * .70 }, cornerR: { x: box.cx + w * .18, y: y + h * .70 },
-      eyeL: mkEye(box.cx - w * .16), eyeR: mkEye(box.cx + w * .16),
-      browL: { x: box.cx - w * .17, y: y + h * .32 }, browR: { x: box.cx + w * .17, y: y + h * .32 },
-      innerL: { x: box.cx - w * .08, y: y + h * .33 }, innerR: { x: box.cx + w * .08, y: y + h * .33 },
-      cheekL: { x: box.cx - w * .20, y: y + h * .55 }, cheekR: { x: box.cx + w * .20, y: y + h * .55 },
-      hingeL: { x: box.x, y: y + h * .60 }, hingeR: { x: box.x + box.w, y: y + h * .60 },
-      outL: { x: box.cx - w * .30, y: y + h * .40 }, outR: { x: box.cx + w * .30, y: y + h * .40 },
-      irisL: null, irisR: null
+    for(let i=0;i<11;i++) bottom[i]=Math.max(top[i],bottom[i]);
+    const eye=(a,z,t,d)=>{
+      const p=point(a),q=point(z),cc=mid(p,q);
+      return {x:cc.x,y:cc.y,w:distance(p,q)/2,h:Math.max(1,distance(point(t),point(d))/2)};
     };
-  }
-
-  /* ── máscara da cabeça (crânio+cabelo): só ela se move no sway ── */
-  function buildHeadMask(g){
-    const b = g.box;
-    const sig = W + 'x' + H + ':' + [b.x, b.y, b.w, b.h].map(Math.round).join(',');
-    if (headSig === sig) return;
-    headSig = sig;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const m = c.getContext('2d');
-    m.save();
-    m.translate(b.cx, b.y + b.h * .44);
-    m.scale(b.w * .76, b.h * .82);
-    const gr = m.createRadialGradient(0, 0, 0, 0, 0, 1);
-    gr.addColorStop(0, 'rgba(255,255,255,1)');
-    gr.addColorStop(.72, 'rgba(255,255,255,1)');
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
-    m.fillStyle = gr;
-    m.beginPath(); m.arc(0, 0, 1, 0, TAU); m.fill();
-    m.restore();
-    headMaskCv = c;
-  }
-
-  function buildRadial(){
-    radial.width = radial.height = 256;
-    const r = radial.getContext('2d');
-    const g = r.createRadialGradient(128, 128, 40, 128, 128, 128);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(.75, 'rgba(255,255,255,.96)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    r.fillStyle = g; r.fillRect(0, 0, 256, 256);
-  }
-
-  /* patch com feather radial (íris, palpebra, enxerto) */
-  function drawFeathered(sx, sy, sw, sh, cx, cy, o = {}, tctx){
-    if (!radial.width) buildRadial();
-    const cc = tctx || ctx;
-    sw = Math.max(4, Math.round(sw)); sh = Math.max(4, Math.round(sh));
-    sx = Math.round(sx); sy = Math.round(sy);
-    mtmp.width = sw; mtmp.height = sh;
-    const m = mtmp.getContext('2d');
-    m.imageSmoothingEnabled = true;
-    m.imageSmoothingQuality = 'high';
-    m.clearRect(0, 0, sw, sh);
-    m.drawImage(photoCv, sx, sy, sw, sh, 0, 0, sw, sh);
-    m.globalCompositeOperation = 'destination-in';
-    m.drawImage(o.mask || radial, 0, 0, 256, 256, 0, 0, sw, sh);
-    m.globalCompositeOperation = 'source-over';
-    cc.save();
-    cc.imageSmoothingEnabled = true;
-    cc.imageSmoothingQuality = 'high';
-    cc.translate(cx + (o.tx || 0), cy + (o.ty || 0));
-    if (o.rot) cc.rotate(o.rot);
-    if (o.sx !== undefined || o.sy !== undefined)
-      cc.scale(o.sx === undefined ? 1 : o.sx, o.sy === undefined ? 1 : o.sy);
-    cc.drawImage(mtmp, sx - cx, sy - cy);
-    cc.restore();
-  }
-
-  /* ═══ MESH WARP ═══ */
-
-  const MESH = { u: 11, v: 13, cx: 0, cy: 0, rx: 0, ry: 0, pts: null, sig: '' };
-
-  function buildMesh(g){
-    const b = g.box;
-    const sig = W + 'x' + H + ':' + [b.x, b.y, b.w, b.h].map(Math.round).join(',');
-    if (MESH.sig === sig) return;
-    MESH.sig = sig;
-    MESH.cx = b.cx; MESH.cy = b.y + b.h * .52;
-    MESH.rx = b.w * .64; MESH.ry = b.h * .68;
-    MESH.pts = [];
-    for (let j = 0; j <= MESH.v; j++)
-      for (let i = 0; i <= MESH.u; i++){
-        const u = i / MESH.u * 2 - 1, v = j / MESH.v * 2 - 1;
-        MESH.pts.push({ x: MESH.cx + u * MESH.rx, y: MESH.cy + v * MESH.ry, dx: 0, dy: 0 });
+    geometry={b,c,axis,normal,half:span/2,top,bottom,
+      eyes:lm?[eye(33,133,159,145),eye(362,263,386,374)]:[],
+      brows:lm?[point(105),point(334)]:[],dark:[.025,.025,.025]};
+    if(photo){
+      // O tom do interior vem de pixels escuros da boca real, inclusive em fotos P&B.
+      const pc=photo.getContext('2d'),samples=[];
+      for(let i=2;i<9;i++)for(let j=1;j<=3;j++){
+        const x=(-1+i/5)*span/2,y=lerp(top[i],bottom[i],j/4);
+        const px=clamp(Math.round(c.x+axis.x*x+normal.x*y),0,W-1);
+        const py=clamp(Math.round(c.y+axis.y*x+normal.y*y),0,H-1);
+        const rgb=pc.getImageData(px,py,1,1).data;
+        samples.push([rgb[0],rgb[1],rgb[2]]);
       }
-  }
-
-  /* peso de influência: blob elíptico com queda suave */
-  function blobW(x, y, cx, cy, rx, ry){
-    const dx = (x - cx) / rx, dy = (y - cy) / ry, d2 = dx * dx + dy * dy;
-    if (d2 >= 1) return 0;
-    const t = 1 - Math.sqrt(d2);
-    return t * t * (3 - 2 * t);
-  }
-
-  /* ═══ BOCA v6 — o rig ═══ */
-  const rp = { eyes: [], dCL: null, dCR: null };
-
-  /* ── paleta da boca DERIVADA DA PRÓPRIA FOTO ──
-     Antes o interior (cavidade, língua, dentes) usava vermelhos/marrons fixos: em foto P&B virava uma
-     cunha vermelha, em foto de pele escura ou clara destoava. Agora cada cor nasce de amostras do lábio
-     inferior e da bochecha da foto — P&B fica cinza, colorida fica na mesma temperatura de cor. */
-  let pal = null, palSig = '';
-  const mixC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-  const rgbp = c => 'rgba(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ',';
-  function avgPatch(cx, cy, r){
-    const x0 = Math.max(0, Math.round(cx - r)), y0 = Math.max(0, Math.round(cy - r));
-    const w = Math.max(1, Math.min(W - x0, Math.round(2 * r)));
-    const h = Math.max(1, Math.min(H - y0, Math.round(2 * r)));
-    const d = photoCv.getContext('2d').getImageData(x0, y0, w, h).data;
-    let R = 0, G = 0, B = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4){ R += d[i]; G += d[i + 1]; B += d[i + 2]; n++; }
-    n = n || 1;
-    return [R / n, G / n, B / n];
-  }
-  function buildPalette(g){
-    if (pal && palSig === MESH.sig) return;
-    palSig = MESH.sig;
-    const r = Math.max(2, g.box.w * .02);
-    const lip = avgPatch(g.lowerLip.x, g.lowerLip.y - r * .2, r);
-    const c1 = avgPatch(g.cheekL.x, g.cheekL.y, r * 1.4), c2 = avgPatch(g.cheekR.x, g.cheekR.y, r * 1.4);
-    const skin = mixC(c1, c2, .5);
-    const black = [0, 0, 0], white = [255, 255, 255];
-    pal = {
-      cavTop:   mixC(lip, black, .74),
-      cavMid:   mixC(lip, black, .84),
-      cavBot:   mixC(lip, black, .70),
-      corner:   mixC(lip, black, .92),
-      tongue:   mixC(lip, black, .28),
-      tongueLo: mixC(lip, black, .50),
-      tongueDk: mixC(lip, black, .62),
-      teeth:    mixC(skin, [244, 241, 234], .72),
-      teethGap: mixC(lip, black, .85),
-      teethEdge:mixC(lip, black, .88),
-      lipLine:  mixC(lip, black, .80),
-      wet:      mixC(skin, white, .72),
-      lipShadow:mixC(lip, black, .55),
-      fold:     mixC(skin, black, .50)
-    };
-  }
-
-  function computeRig(g){
-    const b = g.box;
-    rp.box = b;
-    rp.chinY = g.chin.y;
-    /* a COSTURA DOS LÁBIOS — a única fonte de verdade da boca */
-    rp.seamPts = {
-      xL: g.cornerL.x, yL: g.cornerL.y,
-      xR: g.cornerR.x, yR: g.cornerR.y,
-      xm: g.mouth.x,   ym: g.lipTop.y
-    };
-    rp.halfW = Math.max(8, g.mouthW * .46);
-    /* amplitude da mandíbula: fala comum (mouth ≈ .3–.5) agora desce ~4–7% da altura do rosto
-       (antes ~3–5%, curto demais), e vogal bem aberta chega a ~13% */
-    rp.drop = Math.min(rv.mouth * b.h * .135, b.h * .17);
-
-    const smile = Math.max(0, rv.cur.smile);
-    const asym = Math.max(-.5, Math.min(.5, rv.asym + rv.twitch * .12)) * Math.max(0, smile - .12) / .72;
-    rp.asym = asym; rp.smile = smile; rp.wide = rv.width;
-
-    const fOut = smile * .20;
-    const lift = smile * b.h * .030;
-    rp.cL = { x: g.cornerL.x, y: g.cornerL.y };
-    rp.cR = { x: g.cornerR.x, y: g.cornerR.y };
-    rp.cRr = g.mouthW * .52; rp.cRy2 = b.h * .13;
-    /* largura da boca pelo timbre da fala: "i/e" (width > 0) abre os cantos, "u/o" (width < 0) fecha em bico */
-    const spread = rv.width * g.mouthW * .08;
-    rp.cLdx = -g.mouthW * fOut * (1 + asym) - spread;
-    rp.cRdx =  g.mouthW * fOut * (1 - asym) + spread;
-    rp.cLdy = -lift * (1 + asym);
-    rp.cRdy = -lift * (1 - asym);
-
-    rp.browDy = -(rv.cur.brow + rv.emph * .34 + rv.flash * .45) * b.h * .030;
-    rp.browL = { x: g.browL.x, y: g.browL.y };
-    rp.browR = { x: g.browR.x, y: g.browR.y };
-    rp.browRr = b.w * .17; rp.browRy2 = b.h * .12;
-    rp.knit = rv.cur.knit;
-    rp.inL = { x: g.innerL.x, y: g.innerL.y };
-    rp.inR = { x: g.innerR.x, y: g.innerR.y };
-    rp.inRr = b.w * .09; rp.inRy2 = b.h * .07;
-    rp.blink = rv.blink;
-    rp.wideE = Math.max(0, rv.cur.wide);
-    rp.squint = Math.max(0, rv.cur.squint + rv.emph * .12);
-    rp.eyes = [g.eyeL, g.eyeR].map(e => ({ cx: e.c.x, cy: e.c.y, w: e.w, h: e.h }));
-    rp.chk = [{ x: g.cheekL.x, y: g.cheekL.y, k: 1 + asym }, { x: g.cheekR.x, y: g.cheekR.y, k: 1 - asym }];
-    rp.chkRr = b.w * .21; rp.chkRy2 = b.h * .17;
-    rp.cheekDy = -smile * b.h * .016;
-    rp.outL = { x: g.outL.x, y: g.outL.y, sgn: -1, k: 1 + asym };
-    rp.outR = { x: g.outR.x, y: g.outR.y, sgn:  1, k: 1 - asym };
-    rp.outRr = b.w * .11; rp.outRy2 = b.h * .10;
-    rp.ecDx = smile * b.w * .012;
-    rp.ecDy = -smile * b.h * .011;
-  }
-
-  /* costura dos lábios em x — quadrática por 61/291 passando por 13 */
-  function seamY(x){
-    const s = rp.seamPts;
-    const span = s.xR - s.xL;
-    if (span < 4) return s.ym;
-    const t = clamp01((x - s.xL) / span);
-    const cy = 2 * s.ym - .5 * (s.yL + s.yR);
-    return (1 - t) * (1 - t) * s.yL + 2 * (1 - t) * t * cy + t * t * s.yR;
-  }
-
-  function jawDropAt(x, y){
-    if (rp.drop < .3) return 0;
-    const s = seamY(x);
-    if (y <= s - 7) return 0;
-    const enter = ss(s - 7, s + 2, y);
-    if (enter <= 0) return 0;
-    const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s));
-    return rp.drop * enter * (1 - .18 * t2);
-  }
-
-  function rigDisplace(x, y, p){
-    const b = rp.box;
-    const u = (x - MESH.cx) / MESH.rx, v = (y - MESH.cy) / MESH.ry;
-    const e = Math.sqrt(u * u + v * v);
-    if (e >= 1){ p.dx = 0; p.dy = 0; return; }
-    const fade = 1 - ss(0.66, 0.97, e);
-    if (fade <= 0.002){ p.dx = 0; p.dy = 0; return; }
-    let dx = 0, dy = 0;
-    dy += jawDropAt(x, y);
-    let w = blobW(x, y, rp.cL.x, rp.cL.y, rp.cRr, rp.cRy2);
-    if (w > 0){ dx += rp.cLdx * w; dy += rp.cLdy * w; }
-    w = blobW(x, y, rp.cR.x, rp.cR.y, rp.cRr, rp.cRy2);
-    if (w > 0){ dx += rp.cRdx * w; dy += rp.cRdy * w; }
-    dy += rp.browDy * blobW(x, y, rp.browL.x, rp.browL.y, rp.browRr, rp.browRy2);
-    dy += rp.browDy * blobW(x, y, rp.browR.x, rp.browR.y, rp.browRr, rp.browRy2);
-    if (rp.knit > 0.03){
-      const wl = blobW(x, y, rp.inL.x, rp.inL.y, rp.inRr, rp.inRy2);
-      const wr = blobW(x, y, rp.inR.x, rp.inR.y, rp.inRr, rp.inRy2);
-      dx += rp.knit * b.w * .014 * wl;
-      dx -= rp.knit * b.w * .014 * wr;
-      dy += rp.knit * b.h * .006 * (wl + wr);
+      samples.sort((a,z)=>(a[0]+a[1]+a[2])-(z[0]+z[1]+z[2]));
+      const dark=samples.slice(0,8).reduce((a,p)=>a.map((v,i)=>v+p[i]/8),[0,0,0]);
+      const lum=dark.reduce((a,v)=>a+v,0)/3;
+      geometry.dark=dark.map(v=>Math.min(.19,v/255*(lum<45?.72:.27)));
     }
-    for (const E of rp.eyes){
-      const wU = blobW(x, y, E.cx, E.cy - E.h * 2.3, E.w * .85, E.h * 1.55);
-      if (wU > 0) dy += (rp.blink * E.h * 1.5 - rp.wideE * E.h * 1.2) * wU;
-      const wLo = blobW(x, y, E.cx, E.cy + E.h * 2.0, E.w * .75, E.h * 1.4);
-      if (wLo > 0) dy += (-rp.blink * E.h * .45 - rp.squint * E.h * .9) * wLo;
+    $('#ffCalHint').textContent=(manual?'Boca ajustada manualmente.':'Contorno facial localizado.')+
+      ' Dentes e detalhes visíveis são preservados da foto; não há desenho dental.';
+    syncControls();
+  }
+
+  // Renderizador por pixel: contorno dos lábios define a abertura e a oclusão.
+  // O interior superior usa pixels originais ancorados na maxila, sem esticar os dentes.
+  class PhotoRenderer {
+    constructor(source){
+      this.source=source;this.width=source.width;this.height=source.height;
+      this.data=source.getContext('2d').getImageData(0,0,this.width,this.height).data;
+      this.canvas=document.createElement('canvas');this.canvas.width=this.width;this.canvas.height=this.height;
+      this.kind='Canvas 2D';this.gl=null;this.program=null;this.texture=null;this.locs={};this.lost=false;
+      try{this.initGL();}catch(e){console.info('FORGE: Canvas 2D selecionado:',e.message);this.disposeGL();}
     }
-    for (const c of rp.chk)
-      dy += rp.cheekDy * c.k * blobW(x, y, c.x, c.y, rp.chkRr, rp.chkRy2);
-    for (const o of [rp.outL, rp.outR]){
-      const wo = blobW(x, y, o.x, o.y, rp.outRr, rp.outRy2);
-      if (wo > 0){ dx += o.sgn * rp.ecDx * o.k * wo; dy += rp.ecDy * o.k * wo; }
-    }
-    p.dx = dx * fade;
-    p.dy = dy * fade;
-  }
-
-  function dispAt(x, y){
-    const p = { dx: 0, dy: 0 };
-    rigDisplace(x, y, p);
-    return { x: x + p.dx, y: y + p.dy };
-  }
-
-  function drawTri(s0, s1, s2, d0, d1, d2){
-    const det = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
-    if (Math.abs(det) < 1e-6) return;
-    const a = ((d1.x - d0.x) * (s2.y - s0.y) - (d2.x - d0.x) * (s1.y - s0.y)) / det;
-    const b = ((d1.y - d0.y) * (s2.y - s0.y) - (d2.y - d0.y) * (s1.y - s0.y)) / det;
-    const c = ((d2.x - d0.x) * (s1.x - s0.x) - (d1.x - d0.x) * (s2.x - s0.x)) / det;
-    const d = ((d2.y - d0.y) * (s1.x - s0.x) - (d1.y - d0.y) * (s2.x - s0.x)) / det;
-    const e = d0.x - a * s0.x - c * s0.y;
-    const f = d0.y - b * s0.x - d * s0.y;
-    const gx = (d0.x + d1.x + d2.x) / 3, gy = (d0.y + d1.y + d2.y) / 3, k = 1.05;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(gx + (d0.x - gx) * k, gy + (d0.y - gy) * k);
-    ctx.lineTo(gx + (d1.x - gx) * k, gy + (d1.y - gy) * k);
-    ctx.lineTo(gx + (d2.x - gx) * k, gy + (d2.y - gy) * k);
-    ctx.closePath();
-    ctx.clip();
-    ctx.transform(a, b, c, d, e, f);
-    let bx = Math.min(s0.x, s1.x, s2.x), by = Math.min(s0.y, s1.y, s2.y);
-    let bw = Math.max(s0.x, s1.x, s2.x) - bx + 2, bh = Math.max(s0.y, s1.y, s2.y) - by + 2;
-    bx = Math.max(0, Math.floor(bx)); by = Math.max(0, Math.floor(by));
-    bw = Math.min(W - bx, Math.ceil(bw)); bh = Math.min(H - by, Math.ceil(bh));
-    if (bw > 0 && bh > 0) ctx.drawImage(workCv, bx, by, bw, bh, bx, by, bw, bh);
-    ctx.restore();
-  }
-
-  /* transformação da cabeça (a malha herda: rosto+crânio rígidos) */
-  function computeHeadT(box, t){
-    const b = box;
-    const rot = .007 * Math.sin(TAU * .26 * t + .3)
-              + .0035 * Math.sin(TAU * .57 * t + 1.2)
-              + .0016 * Math.sin(TAU * 1.9 * t + .7)
-              + rv.hfX * .016;
-    const tx = b.w * .006 * Math.sin(TAU * .15 * t + .9) + rv.hfX * b.w * .005;
-    const ty = b.h * .004 * Math.sin(TAU * .23 * t + .2) + rv.nod * b.h * .008;
-    const br = 1 + .0032 * Math.sin(TAU * .22 * t + .5);
-    rv.headT = { rot, tx, ty, br, pvx: b.cx, pvy: b.y + b.h * 1.18 };
-  }
-  function headPt(x, y){
-    const T = rv.headT;
-    const px = x - T.pvx, py = y - T.pvy;
-    const c = Math.cos(T.rot), s = Math.sin(T.rot);
-    return { x: (px * c - py * s) * T.br + T.pvx + T.tx,
-             y: (px * s + py * c) * T.br + T.pvy + T.ty };
-  }
-  const headPt2 = p => headPt(p.x, p.y);
-
-  function applyHeadT(cc){
-    const T = rv.headT;
-    cc.save();
-    cc.translate(T.tx, T.ty);
-    cc.translate(T.pvx, T.pvy);
-    cc.rotate(T.rot);
-    cc.scale(T.br, T.br);
-    cc.translate(-T.pvx, -T.pvy);
-  }
-
-  function renderMesh(){
-    const U = MESH.u, V = MESH.v, Pt = MESH.pts, row = U + 1;
-    for (const p of Pt) rigDisplace(p.x, p.y, p);
-    for (let j = 0; j < V; j++)
-      for (let i = 0; i < U; i++){
-        const a = Pt[j * row + i], bq = Pt[j * row + i + 1],
-              c = Pt[(j + 1) * row + i + 1], d = Pt[(j + 1) * row + i];
-        const dA = headPt(a.x + a.dx, a.y + a.dy);
-        const dB = headPt(bq.x + bq.dx, bq.y + bq.dy);
-        const dC = headPt(c.x + c.dx, c.y + c.dy);
-        const dD = headPt(d.x + d.dx, d.y + d.dy);
-        const mA = Math.abs(dA.x - a.x) + Math.abs(dA.y - a.y);
-        const mB = Math.abs(dB.x - bq.x) + Math.abs(dB.y - bq.y);
-        const mC = Math.abs(dC.x - c.x) + Math.abs(dC.y - c.y);
-        const mD = Math.abs(dD.x - d.x) + Math.abs(dD.y - d.y);
-        if (Math.max(mA, mB, mC, mD) < 0.25) continue;
-        drawTri(a, bq, c, dA, dB, dC);
-        drawTri(a, c, d, dA, dC, dD);
-      }
-  }
-
-  /* camada da cabeça — MESMA ordem do applyHeadT */
-  function drawHeadLayer(box){
-    const T = rv.headT, b = box;
-    const rx = b.w * 1.0, ry = b.h * 1.05;
-    const hw = Math.ceil(2 * rx), hh = Math.ceil(2 * ry);
-    const hx = Math.round(b.cx - hw / 2), hy = Math.round(b.cy - hh / 2);
-    if (headCv.width !== hw || headCv.height !== hh){ headCv.width = hw; headCv.height = hh; }
-    const hc = headCv.getContext('2d');
-    hc.imageSmoothingEnabled = true;
-    hc.imageSmoothingQuality = 'high';
-    hc.clearRect(0, 0, hw, hh);
-    hc.save();
-    hc.translate(-hx, -hy);
-    hc.translate(T.tx, T.ty);
-    hc.translate(T.pvx, T.pvy);
-    hc.rotate(T.rot);
-    hc.scale(T.br, T.br);
-    hc.translate(-T.pvx, -T.pvy);
-    hc.drawImage(workCv, 0, 0, W, H);
-    hc.restore();
-    hc.globalCompositeOperation = 'destination-in';
-    if (headMaskCv) hc.drawImage(headMaskCv, hx, hy, hw, hh, 0, 0, hw, hh);
-    hc.globalCompositeOperation = 'source-over';
-    ctx.drawImage(headCv, hx, hy);
-  }
-
-  /* olhar (baked no work print) */
-  function drawGazeInto(cc, g){
-    if (!g.irisL || !g.irisR) return;
-    const pairs = [[g.irisL, g.eyeL, 1], [g.irisR, g.eyeR, -1]];
-    for (const [ir, e, inner] of pairs){
-      const gx = rv.gazeX * e.w * .22, gy = rv.gazeY * e.h * 1.2;
-      if (Math.abs(gx) < .5 && Math.abs(gy) < .5) continue;
-      const rw = e.w * .5, rh = e.h * 2.4;
-      const csx = ir.x + inner * e.w * .12, csy = ir.y - rh / 2;
-      const csw = Math.max(6, e.w * .42), csh = rh;
-      if (csx >= 0 && csy >= 0 && csx + csw < W && csy + csh < H)
-        drawFeathered(csx, csy, csw, csh, ir.x, ir.y, { sx: rw / csw, sy: 1 }, cc);
-      drawFeathered(ir.x - rw * .52, ir.y - rh / 2, rw * 1.04, rh, ir.x, ir.y,
-        { tx: gx, ty: gy }, cc);
-    }
-  }
-
-  /* palpebra real */
-  function drawLidFlaps(g){
-    if (rp.blink < 0.05 && rp.wideE < 0.06) return;
-    for (const e of [g.eyeL, g.eyeR]){
-      const eh = e.h, ew = e.w;
-      const sx = e.c.x - ew * .75, sy = e.c.y - eh * 3.6;
-      const sw = ew * 1.5, sh = eh * 2.4;
-      if (sx < 0 || sy < 0 || sx + sw >= W || sy + sh >= H) continue;
-      const pvx = e.c.x, pvy = e.c.y - eh * 1.2;
-      const syS = 1 + rp.blink * 1.35 - rp.wideE * .30;
-      const ty = rp.blink * eh * 1.9 - rp.wideE * eh * .45;
-      drawFeathered(sx, sy, sw, sh, pvx, pvy, { ty, sy: syS });
-    }
-  }
-
-  /* ═══ BOCA v6 — a cavidade (dentro da matriz da cabeça) ═══ */
-  function drawMouthInterior(g){
-    const open = rv.mouth;
-    const aIn = clamp01((open - .05) / .09);
-    if (aIn <= .02){ rp.dCL = null; rp.dCR = null; return; }
-    const drop = rp.drop;
-    if (drop < 1.5 || !pal) return;
-
-    const cx = g.mouth.x;
-    /* BUG corrigido: no bico (width < 0) a cavidade LARGAVA em vez de estreitar */
-    const halfW = Math.max(6, rp.halfW * (1 + rv.width * .16));
-    /* perfil do lábio inferior: arco arredondado (parábola "inchada"), não um V — a boca aberta de verdade
-       tem cantos suaves e o fundo largo; expoente .72 fica entre a parábola e a elipse */
-    const openAt = t => Math.pow(Math.max(0, 1 - t * t), .72) * drop * .92;
-    const topAt  = x => seamY(x) + 1.0;
-
-    const yTopC = topAt(cx);
-    const yBotC = yTopC + openAt(0) + 1.5;
-    if (yBotC - yTopC < 2.5) return;
-
-    const N = 24;
-    const topPts = [], botPts = [];
-    for (let i = 0; i <= N; i++){
-      const t = -1 + 2 * i / N;
-      const x = cx + t * halfW;
-      topPts.push({ x, y: topAt(x) });
-      botPts.push({ x, y: topAt(x) + openAt(t) + 1.5 });
-    }
-
-    /* clip na cavidade */
-    ctx.save();
-    ctx.globalAlpha = aIn;
-    ctx.beginPath();
-    ctx.moveTo(topPts[0].x, topPts[0].y);
-    for (let i = 1; i <= N; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
-    for (let i = N; i >= 0; i--) ctx.lineTo(botPts[i].x, botPts[i].y);
-    ctx.closePath();
-    ctx.clip();
-
-    /* gradação do interior */
-    const gr = ctx.createLinearGradient(0, yTopC, 0, yBotC);
-    gr.addColorStop(0,   rgbp(pal.cavTop) + '0.97)');
-    gr.addColorStop(.30, rgbp(pal.cavMid) + '0.99)');
-    gr.addColorStop(.75, rgbp(pal.cavMid) + '0.98)');
-    gr.addColorStop(1,   rgbp(pal.cavBot) + '0.96)');
-    ctx.fillStyle = gr;
-    ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
-
-    /* escurecimento nos cantos */
-    [-1, 1].forEach(sgn => {
-      const ccx = cx + sgn * halfW * .82, ccy = (yTopC + yBotC) / 2;
-      const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30);
-      cg.addColorStop(0, rgbp(pal.corner) + '0.55)');
-      cg.addColorStop(1, rgbp(pal.corner) + '0)');
-      ctx.fillStyle = cg;
-      ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
-    });
-
-    /* ═══ DENTES v6 — arco de tamanho NATURAL que segue a boca ═══
-       O arco não escala com a abertura (dentes não crescem quando
-       você abre a boca): altura ~2.2% do rosto, com teto da
-       cavidade. O que anima é o vão escuro ABAIXO do arco — a
-       distância dente→lábio inferior respira com a fala.          */
-    if (open > .16){
-      const cavH = yBotC - yTopC;
-      const teethNatural = rp.box.h * .026;                   // altura real do arco (~2.2% do rosto)
-      const teethH = Math.min(teethNatural, cavH * .65);      // revelado proporcionalmente
-      if (teethH >= 2.5){
-        const teethA = clamp01((open - .16) / .10);           // fade-in gradual
-        const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7);
-
-        /* faixa do arco — segue a curva do lábio superior */
-        const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
-        tg.addColorStop(0,   rgbp(pal.teeth) + '0.94)');
-        tg.addColorStop(.62, rgbp(pal.teeth) + '0.82)');
-        tg.addColorStop(1,   rgbp(pal.teeth) + '0.34)');
-        ctx.globalAlpha = aIn * teethA;
-        ctx.fillStyle = tg;
-        ctx.beginPath();
-        ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80));
-        for (let i = 0; i <= 12; i++){
-          const t = -.80 + 1.6 * i / 12;
-          ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW));
+    initGL(){
+      const gl=this.canvas.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:true});
+      if(!gl) throw new Error('WebGL indisponível');
+      this.gl=gl;
+      const vs=`attribute vec2 position;varying vec2 uv;void main(){uv=(position+1.0)*0.5;gl_Position=vec4(position,0.0,1.0);}`;
+      const fs=`precision highp float;
+        varying vec2 uv;uniform sampler2D photo;uniform vec2 size,center,axis;
+        uniform vec4 face,eye0,eye1;uniform float halfW,drop,widthScale,smile,brow,blink,rotation;
+        uniform float top[11],bottom[11],softness;uniform vec3 dark;uniform vec2 shift;
+        float saturate(float x){return clamp(x,0.0,1.0);}
+        float upper(float t){float f=saturate((t+1.0)*0.5)*10.0;float v=top[10];
+          for(int i=0;i<10;i++){if(f>=float(i)&&f<float(i+1))v=mix(top[i],top[i+1],f-float(i));}return v;}
+        float lower(float t){float f=saturate((t+1.0)*0.5)*10.0;float v=bottom[10];
+          for(int i=0;i<10;i++){if(f>=float(i)&&f<float(i+1))v=mix(bottom[i],bottom[i+1],f-float(i));}return v;}
+        vec3 tex(vec2 p){return texture2D(photo,vec2(clamp(p.x/size.x,0.0,1.0),clamp(1.0-p.y/size.y,0.0,1.0))).rgb;}
+        vec2 eyelid(vec2 p,vec4 e){
+          if(e.z<1.0)return p;float wx=1.0-smoothstep(0.55,1.18,abs(p.x-e.x)/e.z);
+          float amount=blink*wx,eh=e.w;float y=p.y-e.y,target=eh*(1.0-amount*.88);
+          if(abs(y)<target)p.y=e.y+y/(1.0-amount*.88);
+          else if(y<0.0)p.y-=amount*eh*.88*(1.0-smoothstep(eh,eh*4.0,abs(y)));
+          else p.y+=amount*eh*.40*(1.0-smoothstep(eh,eh*3.0,y));return p;
         }
-        for (let i = 12; i >= 0; i--){
-          const t = -.80 + 1.6 * i / 12;
-          ctx.lineTo(cx + t * halfW, toothEdge(t));
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        /* separações interdentais — o arco lê como dentes individuais */
-        ctx.strokeStyle = rgbp(pal.teethGap) + '0.35)';
-        ctx.lineWidth = Math.max(.8, rp.box.w * .0018);
-        for (let k = 0; k < 5; k++){
-          const t = -.60 + .30 * k;                            // 5 separações: 6 dentes
-          const x = cx + t * halfW;
-          const y0 = topAt(x) + 1;
-          const y1 = toothEdge(t) - Math.max(1, teethH * .12);
-          if (y1 - y0 > 2){
-            ctx.beginPath();
-            ctx.moveTo(x, y0);
-            ctx.lineTo(x + (t < 0 ? -1 : 1) * teethH * .06, y1);
-            ctx.stroke();
+        void main(){
+          vec2 p=vec2(uv.x*size.x,(1.0-uv.y)*size.y);
+          vec2 fc=face.xy;float weight=1.0-smoothstep(.64,1.05,length((p-fc)/face.zw));
+          vec2 v=p-fc-shift*weight;float r=-rotation*weight;
+          vec2 q=vec2(cos(r)*v.x-sin(r)*v.y,sin(r)*v.x+cos(r)*v.y)+fc;
+          q=eyelid(eyelid(q,eye0),eye1);
+          if(brow!=0.0){float w=exp(-pow((q.y-(fc.y-face.w*.27))/(face.w*.10),2.0));
+            q.y+=brow*face.w*.014*w*weight;}
+          vec2 normal=vec2(-axis.y,axis.x);vec2 rel=q-center;
+          float x=dot(rel,axis),y=dot(rel,normal);
+          float lateral=1.0-smoothstep(1.0,1.55,abs(x)/halfW);
+          float near=1.0-smoothstep(face.w*.04,face.w*.18,abs(y));
+          float sx=x/(1.0+(widthScale-1.0)*lateral*near);
+          float t=sx/halfW,shape=pow(max(0.0,1.0-t*t),.80);
+          float up=upper(t),lo=lower(t),lift=smile*face.w*.008*pow(min(1.0,abs(t)),1.7)*lateral;
+          float d=drop*shape,u=up-d*.06-lift,l=lo+d*.94-lift;
+          float sy=y;
+          if(y<=u)sy=y+d*.06*exp(-abs(y-u)/(face.w*.065))+lift*near;
+          else if(y>=l)sy=y-d*.94*exp(-(y-l)/(face.w*.42))+lift*near;
+          vec2 sampleP=center+axis*sx+normal*sy;
+          vec3 color=tex(sampleP);
+          if(abs(t)<1.0&&y>u&&y<l&&d>.001){
+            float gap=max(0.0,lo-up),height=max(.001,l-u),delta=y-u;
+            vec3 oral=dark*(.82+.25*saturate(delta/height));
+            float upperKeep=1.0-smoothstep(max(.0,gap*.78),max(.6,gap*.98),delta);
+            upperKeep*=smoothstep(.6,2.0,gap);
+            oral=mix(oral,tex(center+axis*sx+normal*(up+delta)),upperKeep);
+            float bottomKeep=(1.0-smoothstep(0.0,max(.7,gap*.22),l-y))*smoothstep(1.0,3.0,gap);
+            oral=mix(oral,tex(center+axis*sx+normal*(lo-(l-y))),bottomKeep);
+            float contact=min(y-u,l-y);oral*=.68+.32*smoothstep(.0,softness*1.5,contact);
+            vec3 old=tex(center+axis*sx+normal*(up+delta/height*gap));
+            oral=mix(old,oral,smoothstep(.0,2.0,d));
+            float edge=smoothstep(0.0,softness,contact)*smoothstep(0.0,.025,1.0-abs(t));
+            color=mix(color,oral,edge);
           }
-        }
-
-        /* sombra definindo a borda inferior do arco */
-        ctx.strokeStyle = rgbp(pal.teethEdge) + '0.55)';
-        ctx.lineWidth = Math.max(1, rp.box.w * .002);
-        ctx.beginPath();
-        for (let i = 0; i <= 12; i++){
-          const t = -.80 + 1.6 * i / 12;
-          const x = cx + t * halfW, y = toothEdge(t);
-          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-        }
-        ctx.stroke();
-        ctx.globalAlpha = aIn;                                // restaura p/ língua
+          gl_FragColor=vec4(color,1.0);
+        }`;
+      const compile=(type,src)=>{
+        const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+        if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));
+        return s;
+      };
+      const vertex=compile(gl.VERTEX_SHADER,vs),fragment=compile(gl.FRAGMENT_SHADER,fs);
+      this.program=gl.createProgram();gl.attachShader(this.program,vertex);gl.attachShader(this.program,fragment);
+      gl.linkProgram(this.program);gl.deleteShader(vertex);gl.deleteShader(fragment);
+      if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(this.program));
+      gl.useProgram(this.program);
+      this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+      const pos=gl.getAttribLocation(this.program,'position');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+      this.texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,this.texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,this.source);
+      for(const name of ['size','center','axis','face','eye0','eye1','halfW','softness','drop','widthScale','smile','brow','blink','rotation','dark','shift','top[0]','bottom[0]'])
+        this.locs[name]=gl.getUniformLocation(this.program,name);
+      gl.viewport(0,0,this.width,this.height);this.kind='WebGL';
+      this.canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();this.lost=true;this.kind='Canvas 2D';});
+    }
+    disposeGL(){
+      const gl=this.gl;if(gl){if(this.texture)gl.deleteTexture(this.texture);if(this.program)gl.deleteProgram(this.program);
+        if(this.buffer)gl.deleteBuffer(this.buffer);const ext=gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
+      this.gl=null;this.kind='Canvas 2D';
+    }
+    dispose(){this.disposeGL();this.data=null;this.frame=null;}
+    sample(x,y,out){
+      // Mesma convenção de centros de pixels do sampler do WebGL.
+      x=clamp(x-.5,0,this.width-1);y=clamp(y-.5,0,this.height-1);
+      const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy;
+      const a=(iy*this.width+ix)*4,b=(iy*this.width+Math.min(ix+1,this.width-1))*4;
+      const c=(Math.min(iy+1,this.height-1)*this.width+ix)*4,d=(Math.min(iy+1,this.height-1)*this.width+Math.min(ix+1,this.width-1))*4;
+      for(let i=0;i<3;i++)out[i]=lerp(lerp(this.data[a+i],this.data[b+i],fx),lerp(this.data[c+i],this.data[d+i],fx),fy)/255;
+      return out;
+    }
+    render(p){
+      if(this.gl&&!this.lost){
+        const gl=this.gl,l=this.locs,g=p.g,b=g.b;gl.useProgram(this.program);
+        gl.uniform2f(l.size,this.width,this.height);gl.uniform2f(l.center,g.c.x,g.c.y);gl.uniform2f(l.axis,g.axis.x,g.axis.y);
+        gl.uniform4f(l.face,b.cx,b.cy,b.w*.72,b.h*.70);gl.uniform1f(l.halfW,g.half);gl.uniform1f(l.softness,clamp(g.half*.018,.9,2.8));
+        for(let i=0;i<2;i++){const e=g.eyes[i];gl.uniform4f(l['eye'+i],e?e.x:0,e?e.y:0,e?e.w:0,e?e.h:0);}
+        for(const key of ['drop','widthScale','smile','brow','blink','rotation'])gl.uniform1f(l[key],p[key]);
+        gl.uniform3fv(l.dark,g.dark);gl.uniform2f(l.shift,p.tx,p.ty);
+        gl.uniform1fv(l['top[0]'],g.top);gl.uniform1fv(l['bottom[0]'],g.bottom);
+        gl.drawArrays(gl.TRIANGLES,0,6);ctx.drawImage(this.canvas,0,0);return;
       }
+      this.renderCPU(p);
     }
-
-    /* LÍNGUA — forma DEFINIDA com sulco central (aberturas grandes) */
-    if (open > .42){
-      const hgt = yBotC - yTopC;
-      const tcy = yBotC - hgt * .24;
-      const tw = halfW * .58, th = Math.max(3, hgt * .26);
-      const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw);
-      lg.addColorStop(0,   rgbp(pal.tongue) + '0.75)');
-      lg.addColorStop(.55, rgbp(pal.tongueLo) + '0.72)');
-      lg.addColorStop(1,   rgbp(pal.tongueDk) + '0)');
-      ctx.fillStyle = lg;
-      ctx.beginPath();
-      ctx.ellipse(cx, tcy, tw, th, 0, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = rgbp(pal.tongueDk) + '0.55)';
-      ctx.lineWidth = Math.max(1, rp.box.w * .0025);
-      ctx.beginPath();
-      ctx.moveTo(cx - tw * .5, tcy);
-      ctx.quadraticCurveTo(cx, tcy + th * .35, cx + tw * .5, tcy);
-      ctx.stroke();
-    }
-    ctx.restore();  /* unclip + alpha */
-
-    /* linha do lábio superior (borda superior NÍTIDA) */
-    ctx.save();
-    ctx.globalAlpha = aIn * .45;
-    ctx.strokeStyle = rgbp(pal.lipLine) + '1)';
-    ctx.lineWidth = Math.max(1.2, rp.box.w * .0035);
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(topPts[0].x, topPts[0].y);
-    for (let i = 1; i <= N; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
-    ctx.stroke();
-    ctx.restore();
-
-    /* wet-line: brilho da mucosa do lábio inferior */
-    ctx.save();
-    ctx.globalAlpha = aIn * .30;
-    ctx.strokeStyle = rgbp(pal.wet) + '1)';
-    ctx.lineWidth = Math.max(1, rp.box.w * .0028);
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(botPts[0].x, botPts[0].y - 1);
-    for (let i = 1; i <= N; i++) ctx.lineTo(botPts[i].x, botPts[i].y - 1);
-    ctx.stroke();
-    ctx.restore();
-
-    /* sombra sob o lábio inferior */
-    const d17 = dispAt(g.lowerLip.x, g.lowerLip.y);
-    ctx.save();
-    ctx.globalAlpha = aIn * .45;
-    const sg = ctx.createRadialGradient(cx, d17.y, 1, cx, d17.y, halfW * .55);
-    sg.addColorStop(0, rgbp(pal.lipShadow) + '0.30)');
-    sg.addColorStop(1, rgbp(pal.lipShadow) + '0)');
-    ctx.fillStyle = sg;
-    ctx.translate(cx, d17.y);
-    ctx.scale(1, .32);
-    ctx.beginPath(); ctx.arc(0, 0, halfW * .55, 0, TAU); ctx.fill();
-    ctx.restore();
-
-    rp.dCL = dispAt(g.cornerL.x, g.cornerL.y);
-    rp.dCR = dispAt(g.cornerR.x, g.cornerR.y);
-  }
-
-  /* sombreamento esfumado (sulcos) */
-  function foldShadow(x0, y0, qx, qy, x1, y1, alpha, width){
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = rgbp(pal.fold) + (alpha * .45).toFixed(3) + ')';
-    ctx.lineWidth = width * 2.4;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(qx, qy, x1, y1); ctx.stroke();
-    ctx.strokeStyle = rgbp(pal.fold) + alpha.toFixed(3) + ')';
-    ctx.lineWidth = width;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(qx, qy, x1, y1); ctx.stroke();
-    ctx.restore();
-  }
-  function drawShadows(g){
-    if (!pal) return;
-    const b = g.box, s = rp.smile;
-    if (s > 0.22){
-      const cLp = rp.dCL || dispAt(g.cornerL.x, g.cornerL.y);
-      const cRp = rp.dCR || dispAt(g.cornerR.x, g.cornerR.y);
-      const a = Math.min(.11, s * .13);
-      foldShadow(
-        g.mouth.x - g.mouthW * .26, g.mouth.y - b.h * .10,
-        cLp.x - b.w * .015, (g.mouth.y + cLp.y) / 2 - b.h * .03,
-        cLp.x - b.w * .008, cLp.y - b.h * .004,
-        Math.min(.13, a * (1 + rp.asym * .4)), Math.max(1, b.w * .011));
-      foldShadow(
-        g.mouth.x + g.mouthW * .26, g.mouth.y - b.h * .10,
-        cRp.x + b.w * .015, (g.mouth.y + cRp.y) / 2 - b.h * .03,
-        cRp.x + b.w * .008, cRp.y - b.h * .004,
-        Math.min(.13, a * (1 - rp.asym * .4)), Math.max(1, b.w * .011));
-    }
-    if (s > 0.32){
-      const a = Math.min(.09, (s - .3) * .12);
-      ctx.save();
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = rgbp(pal.fold) + a.toFixed(3) + ')';
-      ctx.lineWidth = Math.max(1, b.w * .007);
-      [[g.outL, -1], [g.outR, 1]].forEach(([o, sgn]) => {
-        for (let k = -1; k <= 1; k += 2){
-          ctx.beginPath();
-          ctx.moveTo(o.x + sgn * b.w * .004, o.y + k * b.h * .004);
-          ctx.lineTo(o.x + sgn * b.w * .030, o.y + k * b.h * .011 - b.h * .004);
-          ctx.stroke();
+    renderCPU(p){
+      const g=p.g,b=g.b,rx=b.w*.72,ry=b.h*.70;
+      const x0=clamp(Math.floor(b.cx-rx*1.07),0,this.width-1),y0=clamp(Math.floor(b.cy-ry*1.07),0,this.height-1);
+      const w=Math.min(this.width-x0,Math.ceil(rx*2.14)),h=Math.min(this.height-y0,Math.ceil(ry*2.14));
+      if(!this.frame||this.frame.width!==w||this.frame.height!==h)this.frame=ctx.createImageData(w,h);
+      const out=this.frame.data,col=[0,0,0],tmp=[0,0,0],old=[0,0,0],oral=[0,0,0],softness=clamp(g.half*.018,.9,2.8);
+      const curve=(a,t)=>{const f=clamp((t+1)*.5)*10,i=Math.min(9,Math.floor(f));return lerp(a[i],a[i+1],f-i);};
+      for(let iy=0;iy<h;iy++)for(let ix=0;ix<w;ix++){
+        const px=x0+ix+.5,py=y0+iy+.5;
+        const weight=1-smooth(.64,1.05,Math.hypot((px-b.cx)/rx,(py-b.cy)/ry));
+        const vx=px-b.cx-p.tx*weight,vy=py-b.cy-p.ty*weight,r=-p.rotation*weight;
+        let qx=Math.cos(r)*vx-Math.sin(r)*vy+b.cx,qy=Math.sin(r)*vx+Math.cos(r)*vy+b.cy;
+        for(const e of g.eyes){
+          const amount=p.blink*(1-smooth(.55,1.18,Math.abs(qx-e.x)/e.w));
+          const y=qy-e.y,target=e.h*(1-amount*.88);
+          if(Math.abs(y)<target)qy=e.y+y/(1-amount*.88);
+          else if(y<0)qy-=amount*e.h*.88*(1-smooth(e.h,e.h*4,Math.abs(y)));
+          else qy+=amount*e.h*.40*(1-smooth(e.h,e.h*3,y));
         }
-      });
-      ctx.restore();
+        qy+=p.brow*ry*.014*Math.exp(-(((qy-(b.cy-ry*.27))/(ry*.10))**2))*weight;
+        const nx=-g.axis.y,ny=g.axis.x;
+        const x=(qx-g.c.x)*g.axis.x+(qy-g.c.y)*g.axis.y,y=(qx-g.c.x)*nx+(qy-g.c.y)*ny;
+        const lateral=1-smooth(1,1.55,Math.abs(x)/g.half),near=1-smooth(ry*.04,ry*.18,Math.abs(y));
+        const sx=x/(1+(p.widthScale-1)*lateral*near),t=sx/g.half;
+        const d=p.drop*Math.max(0,1-t*t)**.8,up=curve(g.top,t),lo=curve(g.bottom,t);
+        const lift=p.smile*ry*.008*Math.min(1,Math.abs(t))**1.7*lateral,u=up-d*.06-lift,l=lo+d*.94-lift;
+        let sy=y;
+        if(y<=u)sy+=d*.06*Math.exp(-Math.abs(y-u)/(ry*.065))+lift*near;
+        else if(y>=l)sy-=d*.94*Math.exp(-(y-l)/(ry*.42))-lift*near;
+        this.sample(g.c.x+g.axis.x*sx+nx*sy,g.c.y+g.axis.y*sx+ny*sy,col);
+        if(Math.abs(t)<1&&y>u&&y<l&&d>.001){
+          const gap=Math.max(0,lo-up),height=Math.max(.001,l-u),delta=y-u;
+          const keep=(1-smooth(Math.max(0,gap*.78),Math.max(.6,gap*.98),delta))*smooth(.6,2,gap);
+          this.sample(g.c.x+g.axis.x*sx+nx*(up+delta),g.c.y+g.axis.y*sx+ny*(up+delta),tmp);
+          for(let k=0;k<3;k++)oral[k]=lerp(g.dark[k]*(.82+.25*clamp(delta/height)),tmp[k],keep);
+          const bottomKeep=(1-smooth(0,Math.max(.7,gap*.22),l-y))*smooth(1,3,gap);
+          this.sample(g.c.x+g.axis.x*sx+nx*(lo-(l-y)),g.c.y+g.axis.y*sx+ny*(lo-(l-y)),tmp);
+          const contact=Math.min(y-u,l-y),shadow=.68+.32*smooth(0,softness*1.5,contact),blend=smooth(0,2,d);
+          this.sample(g.c.x+g.axis.x*sx+nx*(up+delta/height*gap),g.c.y+g.axis.y*sx+ny*(up+delta/height*gap),old);
+          const edge=smooth(0,softness,contact)*smooth(0,.025,1-Math.abs(t));
+          for(let k=0;k<3;k++){oral[k]=lerp(old[k],lerp(oral[k],tmp[k],bottomKeep)*shadow,blend);col[k]=lerp(col[k],oral[k],edge);}
+        }
+        const index=(iy*w+ix)*4;for(let k=0;k<3;k++)out[index+k]=Math.round(clamp(col[k])*255);out[index+3]=255;
+      }
+      ctx.putImageData(this.frame,x0,y0);
     }
   }
 
-  function clearFx(){
-    fx.puppet = fx.swap = fx.smooth = fx.glitch = false;
-    maskCv = null;
-    fxBtns.forEach(b => b.classList.remove('on'));
+  function syncControls(){
+    const photoReady=mode==='photo'&&photo,hasMedia=mode!=='idle',ready=photoReady&&geometry;
+    for(const id of controls)$('#'+id).disabled=!hasMedia;
+    $('#ffRevive').disabled=!ready;$('#ffVoice').disabled=!ready;$('#ffAudioBtn').disabled=!photoReady;
+    $('#ffCalibrate').disabled=!photoReady;$('#ffCompare').disabled=!photoReady;
+    $('#ffAudioPlay').disabled=!ready||!audioBuffer||audioLoading;
+    $('#ffAudioClear').disabled=!audioBuffer&&!mic;
+    $('#ffStop').disabled=!hasMedia&&!cameraLoading&&!photoLoading;
+    $('#ffPhotoBtn').disabled=!$('#ffConsent').checked||!!recording||photoLoading||clipLoading;
+    $('#ffStart').disabled=!!recording||cameraLoading||clipLoading;
+    $('#ffClip').disabled=!hasMedia||(photoReady&&!geometry)||!!calibration||clipLoading;
+    $('#ffShot').disabled=!hasMedia||!!calibration;
+    $('#ffClip').textContent=recording?'■ encerrar gravação':'gravar clipe';
+    for(const el of $$('#ffMood .chip'))el.disabled=!ready||!!recording;
+    for(const el of $$('#ffFx .chip'))el.disabled=!hasMedia||(el.dataset.fx==='puppet'&&(mode!=='live'||!lm));
+    if(recording||clipLoading){
+      for(const id of ['ffCalibrate','ffCompare','ffVoice','ffAudioBtn','ffAudioPlay','ffAudioClear','ffRevive','ffMask'])$('#'+id).disabled=true;
+      $('#ffMotion').disabled=true;$('#ffIntensity').disabled=true;$('#ffClipDuration').disabled=true;
+    }else{$('#ffMotion').disabled=false;$('#ffIntensity').disabled=false;$('#ffClipDuration').disabled=false;}
+    if(micLoading)$('#ffVoice').disabled=true;
+    $('#ffRevive').classList.toggle('on',anim.on);$('#ffRevive').textContent=anim.on?'■ pausar animação':'▷ reviver';
+    $('#ffCompare').classList.toggle('on',compare);$('#ffCompare').textContent=compare?'ver animação':'ver original';
+    $('#ffVoice').classList.toggle('on',audioMode==='mic');$('#ffAudioPlay').classList.toggle('on',!!audioSource);
+    $('#ffAudioPlay').textContent=audioSource?'■ parar áudio':'▷ tocar áudio';
   }
-
-  function releaseCamera(){
-    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
-    video.srcObject = null;
-    lm = null;
+  function clearFX(){for(const k in fx)fx[k]=false;mask=null;$$('#ffFx .chip').forEach(e=>e.classList.remove('on'));}
+  function releaseCamera(){if(camera)camera.getTracks().forEach(t=>t.stop());camera=null;video.srcObject=null;}
+  function stopAudio(preserve=true){
+    if(audioSource){const s=audioSource;audioSource=null;s.onended=null;try{s.stop();s.disconnect();}catch{}}
+    if(mic)mic.getTracks().forEach(t=>t.stop());mic=null;analyser=null;tbuf=null;fbuf=null;
+    if(audioContext){audioContext.close().catch(()=>{});audioContext=null;}audioOut=null;
+    audioMode=preserve&&audioBuffer?'file':'demo';audioLevel=0;anim.mouth=0;
+    $('#ffAudioPlayer').hidden=!audioBuffer;
+    if(!preserve){audioBuffer=null;audioName='';$('#ffAudioName').textContent='';$('#ffAudioPlayer').hidden=true;}
+    syncControls();
   }
-
-  /* ── modo ao vivo (webcam) ── */
-  async function start(){
-    if (mode === 'photo'){ photoCv = null; photoName = ''; MESH.sig = ''; headSig = ''; }
-    clearFx();
-    rv.on = false;
-    $reviveBtn.classList.remove('on');
-    if (rv.voice) stopVoiceDrive();
-    moodBtns.forEach(b => b.disabled = true);
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 } }, audio: false });
-    } catch (e){
-      setSt('câmera negada');
-      $ro.textContent = 'acesso à câmera negado ou indisponível — ' + e.name + ' · use o modo foto como alternativa';
-      return;
-    }
-    video.srcObject = stream;
-    await video.play().catch(() => {});
-    let tries = 0;
-    while (!video.videoWidth && tries++ < 50) await sleep(100);
-    W = cvs.width = video.videoWidth || 640;
-    H = cvs.height = video.videoHeight || 480;
-    mode = 'live';
-    empty.hidden = true;
-    $('#ffStart').disabled = true;
-    fxBtns.forEach(b => b.disabled = false);
-    btnPuppet.disabled = fmState !== 'on';
-    $reviveBtn.disabled = true;
-    $voiceBtn.disabled = true;
-    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
-    setSt('câmera ativa');
-    $ro.textContent = 'câmera ativa — ative efeitos e combine-os. O quadro abaixo é o pipeline ao vivo.';
-    running = true;
-    loop();
-    loadMesh();
+  function stop(){
+    generation++;photoLoading=false;cameraLoading=false;audioLoading=false;micLoading=false;clipLoading=false;
+    if(recording&&recording.state!=='inactive')recording.stop();
+    running=false;cancelAnimationFrame(raf);raf=0;releaseCamera();stopAudio();
+    if(renderer)renderer.dispose();renderer=null;photo=null;photoName='';lm=null;manual=null;geometry=null;
+    mode='idle';anim.on=false;compare=false;calibration=null;clearFX();guide.hidden=true;
+    ctx.clearRect(0,0,W,H);empty.hidden=false;stage.style.aspectRatio='4 / 3';
+    setStatus('parado');message('Sessão encerrada. Câmera e microfone liberados. Carregue uma foto para iniciar.');syncControls();
   }
+  function dimensions(w,h){W=cvs.width=guide.width=w;H=cvs.height=guide.height=h;stage.style.aspectRatio=w+' / '+h;}
+  function beginLoop(){running=true;frameCount=0;fpsStart=performance.now();if(!raf)raf=requestAnimationFrame(loop);}
 
-  /* ── modo foto (still) ── */
+  async function startCamera(){
+    if(cameraLoading||recording||clipLoading)return;
+    stop();cameraLoading=true;const token=generation;syncControls();setStatus('abrindo câmera…');
+    try{
+      if(!navigator.mediaDevices||!window.isSecureContext)throw new Error('A câmera requer HTTPS ou localhost.');
+      const s=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:960}},audio:false});
+      if(token!==generation){s.getTracks().forEach(t=>t.stop());return;}
+      camera=s;video.srcObject=s;await video.play();
+      if(token!==generation)return;
+      if(!video.videoWidth)throw new Error('A câmera não forneceu quadros.');
+      dimensions(video.videoWidth,video.videoHeight);mode='live';empty.hidden=true;
+      setStatus('câmera ativa');message('Câmera ativa. Os efeitos de demonstração podem ser combinados.');
+      beginLoop();syncControls();loadTracking(token);
+    }catch(e){if(token===generation){releaseCamera();setStatus('câmera indisponível');message(e.message+' · Use o modo foto.');}}
+    finally{if(token===generation){cameraLoading=false;syncControls();}}
+  }
   async function loadPhoto(){
-    const f = $photoIn.files && $photoIn.files[0];
-    $photoIn.value = '';
-    if (!f) return;
-    const ext = extOf(f.name || '');
-    const ok = (f.type && f.type.startsWith('image/')) || ['jpg','jpeg','png','webp','gif','bmp'].includes(ext);
-    if (!ok){ $ro.textContent = '"' + f.name + '" não parece ser uma imagem'; return; }
-    try {
-      const url = URL.createObjectURL(f);
-      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-      /* resolução de trabalho: nem acima de 1280 (desempenho) nem abaixo de 960 (a boca precisa de
-         pixels para o interior, os dentes e a língua — fotos pequenas são ampliadas) */
-      const cap = 1280, floor = 960;
-      const big = Math.max(img.naturalWidth, img.naturalHeight);
-      const sc = big > cap ? cap / big : (big < floor ? floor / big : 1);
-      W = Math.max(2, Math.round(img.naturalWidth * sc));
-      H = Math.max(2, Math.round(img.naturalHeight * sc));
-      photoCv = document.createElement('canvas');
-      photoCv.width = W; photoCv.height = H;
-      const pc = photoCv.getContext('2d', { willReadFrequently: true });
-      pc.imageSmoothingEnabled = true;
-      pc.imageSmoothingQuality = 'high';
-      pc.drawImage(img, 0, 0, W, H);
-      URL.revokeObjectURL(url);
-    } catch (e){
-      $ro.textContent = 'falha ao decodificar a imagem — ' + e.message;
-      return;
-    }
-    /* BUG corrigido: no modo foto o canvas de saída nunca era dimensionado e ficava em 300×150 px */
-    cvs.width = W; cvs.height = H;
-    workCv.width = W; workCv.height = H;
-    wctx = workCv.getContext('2d');
-    wctx.imageSmoothingEnabled = true;
-    wctx.imageSmoothingQuality = 'high';
-    releaseCamera();
-    clearFx();
-    MESH.sig = ''; headSig = ''; pal = null;
-    rv.on = false;
-    $reviveBtn.classList.remove('on');
-    if (rv.voice) stopVoiceDrive();
-    photoName = f.name;
-    mode = 'photo';
-    empty.hidden = true;
-    $('#ffStart').disabled = false;
-    fxBtns.forEach(b => b.disabled = false);
-    btnPuppet.disabled = true;
-    $reviveBtn.disabled = false;
-    $voiceBtn.disabled = false;
-    moodBtns.forEach(b => b.disabled = false);
-    ['#ffMask','#ffShot','#ffClip'].forEach(s => $(s).disabled = false);
-    setSt('foto carregada');
-    $ro.innerHTML = 'foto <b>' + esc(photoName) + '</b> · ' + W + '×' + H + ' px — modo still. ' +
-      'Clique em <b>reviver</b>: boca alinhada ao rosto, com arco dental de tamanho natural — ' +
-      'os dentes mantêm sua altura e o vão escuro abaixo deles cresce com a fala. Ative o driver de voz para seguir a sua fala.';
-    Terminal.log('[FORGE::FACE] modo foto: ' + photoName + ' (' + W + '×' + H + ' px)', 'ok');
-    running = true;
-    loop();
-    loadMesh();
+    const file=$('#ffPhotoInput').files[0];$('#ffPhotoInput').value='';
+    if(!file||!$('#ffConsent').checked||recording||photoLoading||clipLoading)return;
+    if(file.size>25*1024*1024){message('Escolha uma imagem de até 25 MB.');return;}
+    photoLoading=true;syncControls();let url=null;const token=generation;
+    try{
+      url=URL.createObjectURL(file);
+      const img=await new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=()=>reject(new Error('Imagem não decodificável no navegador.'));i.src=url;});
+      if(token!==generation||!$('#ffConsent').checked)return;
+      if(img.naturalWidth*img.naturalHeight>100000000)throw new Error('Imagem muito grande; reduza para até 100 megapixels.');
+      const scale=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight));
+      const source=document.createElement('canvas');source.width=Math.max(2,Math.round(img.naturalWidth*scale));source.height=Math.max(2,Math.round(img.naturalHeight*scale));
+      const pc=source.getContext('2d',{willReadFrequently:true});pc.imageSmoothingQuality='high';pc.drawImage(img,0,0,source.width,source.height);
+      stop();photo=source;photoName=file.name;dimensions(source.width,source.height);
+      renderer=new PhotoRenderer(source);mode='photo';empty.hidden=true;guide.hidden=true;compare=false;
+      setStatus('foto carregada');message('Foto '+photoName+' · '+W+'×'+H+' px. Localizando o rosto; você também pode usar “ajustar boca”.');
+      $('#ffCalHint').textContent='Para fotos inclinadas ou sem tracking, marque os quatro pontos em “ajustar boca”.';
+      beginLoop();syncControls();Terminal.log('[FORGE::FACE] foto carregada · '+renderer.kind+' · '+W+'×'+H,'ok');
+      loadTracking(generation);
+    }catch(e){message('Falha ao carregar: '+e.message);}
+    finally{if(url)URL.revokeObjectURL(url);photoLoading=false;syncControls();}
   }
 
-  /* ── REVIVER: liga/desliga ── */
-  function toggleRevive(){
-    if (mode !== 'photo' || !photoCv) return;
-    rv.on = !rv.on;
-    $reviveBtn.classList.toggle('on', rv.on);
-    if (rv.on){
-      rv.t0 = performance.now();
-      rv.lastT = 0;
-      rv.syls = null; rv.si = 0; rv.hitSi = -1; rv.sylsEnd = 0; rv.restUntil = 0;
-      rv.mouth = .04; rv.width = 0; rv.velM = 0; rv.velW = 0;
-      rv.nextBlink = .8 + Math.random(); rv.nextSac = .4;
-      rv.nextMood = 1.5; rv.nextFlash = 3 + Math.random() * 4;
-      rv.nextTwitch = 4 + Math.random() * 5;
-      rv.emph = 0; rv.nod = 0; rv.hfX = 0; rv.velH = 0;
-      setSt(rv.voice ? 'foto animada (voz)' : 'foto animada');
-      $ro.innerHTML = 'reencenação ATIVA — boca v6: arco dental de altura natural preso à maxila; ' +
-        'o que anima é o vão escuro entre a borda dos dentes e o lábio inferior. Os dentes seguem a boca. ' +
-        'Grave o clipe e envie ao detector.';
-      Terminal.log('[FORGE::FACE] reencenação v9 ativada (boca v6: arco dental de tamanho natural · vão escuro anima)', 'ok');
-    } else {
-      setSt(rv.voice ? 'foto animada (voz)' : 'foto carregada');
-      $ro.textContent = 'reencenação pausada — a foto volta ao still. Os demais efeitos continuam disponíveis.';
-      Terminal.log('[FORGE::FACE] reencenação pausada', 'plain');
-    }
-  }
-
-  /* ── REVIVER: driver pela voz ── */
-  async function toggleVoiceDrive(){
-    if (rv.voice){ stopVoiceDrive(); return; }
-    if (mode !== 'photo' || !photoCv) return;
-    try {
-      rv.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
+  async function ensureMesh(){
+    if(fm)return fm;if(meshPromise)return meshPromise;
+    meshPromise=(async()=>{
+      if(!self.FaceMesh)await new Promise((resolve,reject)=>{
+        const s=document.createElement('script');let timer;
+        const finish=error=>{clearTimeout(timer);s.onload=null;s.onerror=null;if(error){s.remove();reject(error);}else resolve();};
+        s.src='https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js';
+        s.crossOrigin='anonymous';s.onload=()=>finish();s.onerror=()=>finish(new Error('Tracking indisponível.'));
+        timer=setTimeout(()=>finish(new Error('Timeout no tracking.')),15000);document.head.appendChild(s);
       });
-    } catch (e){
-      $ro.textContent = 'microfone negado — ' + e.name + ' (o driver procedural continua disponível)';
-      return;
-    }
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    rv.ac = new Ctx();
-    const src = rv.ac.createMediaStreamSource(rv.micStream);
-    rv.analyser = rv.ac.createAnalyser();
-    rv.analyser.fftSize = 512;
-    src.connect(rv.analyser);
-    rv.voice = true;
-    $voiceBtn.classList.add('on');
-    if (!rv.on) toggleRevive();
-    setSt('foto animada (voz)');
-    $ro.innerHTML = 'driver por VOZ ativo — <b>fale</b> e a boca abre e fecha seguindo a sua fala ' +
-      '(mapeamento compressivo; transientes → ênfase). Grave o clipe: sai <b>com a sua trilha</b> ' +
-      'para a bancada analisar vídeo + áudio de uma vez.';
-    Terminal.log('[FORGE::FACE] driver por voz ativo — RMS compressivo dirige a abertura; transientes → ênfase', 'ok');
-  }
-  function stopVoiceDrive(){
-    rv.voice = false;
-    rv.analyser = null; rv.tbuf = null; rv.fbuf = null; rv.prevRms = 0;
-    if (rv.micStream){ rv.micStream.getTracks().forEach(t => t.stop()); rv.micStream = null; }
-    if (rv.ac){ try { rv.ac.close(); } catch {} rv.ac = null; }
-    $voiceBtn.classList.remove('on');
-    if (rv.on) setSt('foto animada');
-    Terminal.log('[FORGE::FACE] driver por voz encerrado', 'plain');
-  }
-
-  /* ── tracking ── */
-  async function meshOnce(){
-    try { await fm.send({ image: mode === 'photo' ? photoCv : video }); } catch {}
-  }
-  async function loadMesh(){
-    if (fmState === 'on'){ await meshOnce(); return; }
-    if (fmState === 'loading') return;
-    fmState = 'loading'; setSt('carregando tracking…');
-    try {
-      await new Promise((res, rej) => {
-        if (self.FaceMesh) return res();
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
-        s.onload = res;
-        s.onerror = () => rej(new Error('CDN indisponível'));
-        document.head.appendChild(s);
-        setTimeout(() => rej(new Error('timeout')), 15000);
-      });
-      fm = new self.FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
-      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: .5, minTrackingConfidence: .5 });
-      fm.onResults(r => { lm = (r.multiFaceLandmarks && r.multiFaceLandmarks[0]) || null; });
-      fmState = 'on';
-      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'live' ? 'tracking ativo (478 pts)' : 'foto carregada'));
-      if (mode === 'live') btnPuppet.disabled = false;
-      meshLoop();
-    } catch (e){
-      fmState = 'fail';
-      setSt('tracking indisponível');
-      btnPuppet.disabled = true;
-      $ro.textContent = 'MediaPipe indisponível (CDN offline?) — a reencenação usa proporções estimadas da face (sem olhar por íris); marionete desabilitada.';
-    }
-  }
-  async function meshLoop(){
-    while (fmState === 'on' && running){
-      if (mode === 'photo'){ await meshOnce(); break; }
-      try { await fm.send({ image: video }); } catch { break; }
-      await sleep(30);
-    }
-  }
-
-  /* ═══ DRIVERS ═══ */
-
-  function driveMouth(t, dt){
-    let tgtM = .04, tgtW = 0;
-    if (rv.voice && rv.analyser){
-      if (!rv.tbuf){ rv.tbuf = new Uint8Array(rv.analyser.fftSize); rv.fbuf = new Uint8Array(rv.analyser.frequencyBinCount); }
-      rv.analyser.getByteTimeDomainData(rv.tbuf);
-      let s = 0;
-      for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
-      const rms = Math.sqrt(s / rv.tbuf.length);
-      tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8));
-      rv.analyser.getByteFrequencyData(rv.fbuf);
-      let num = 0, den = 0;
-      const bins = rv.fbuf.length, nyq = rv.ac.sampleRate / 2;
-      for (let i = 2; i < bins; i++){ const f = i * nyq / bins; num += f * rv.fbuf[i]; den += rv.fbuf[i]; }
-      const cent = den > 0 ? num / den : 1500;
-      const wide = Math.max(-.4, Math.min(.8, (cent - 1400) / 2300));
-      tgtW = rms > .02 ? wide : 0;
-      const d = rms - rv.prevRms;
-      rv.prevRms = rms * .65 + rv.prevRms * .35;
-      if (d > .018){
-        rv.emph = Math.min(1, rv.emph + d * 9);
-        rv.nod = Math.max(rv.nod, Math.min(1, d * 10));
-      }
-    } else {
-      if ((!rv.syls || t >= rv.sylsEnd) && t >= rv.restUntil){
-        const n = 2 + Math.floor(Math.random() * 5);
-        rv.syls = []; rv.si = 0; rv.hitSi = -1;
-        let tt = t + .02;
-        for (let i = 0; i < n; i++){
-          const dur = .12 + Math.random() * .18, gap = .02 + Math.random() * .07;
-          rv.syls.push({ t0: tt, t1: tt + dur, amp: .25 + Math.random() * .55, wide: -.35 + Math.random() * .85 });
-          tt += dur + gap;
-        }
-        rv.sylsEnd = rv.syls[n - 1].t1;
-        rv.restUntil = rv.sylsEnd + .35 + Math.random() * 1.15;
-      }
-      if (rv.syls && t <= rv.sylsEnd){
-        const s = rv.syls[rv.si];
-        if (s && t >= s.t0){
-          if (rv.hitSi !== rv.si){
-            rv.hitSi = rv.si;
-            rv.emph = Math.min(1, rv.emph + s.amp * .5);
-            rv.nod = Math.max(rv.nod, s.amp * .45);
+      fm=new self.FaceMesh({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/'+f});
+      fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+      fm.onResults(result=>{
+        if(meshGeneration!==generation)return;
+        lm=result.multiFaceLandmarks&&result.multiFaceLandmarks[0]||null;
+        if(mode==='photo'){
+          if(!calibration)buildGeometry();
+          if(!manual){
+            if(geometry){setStatus(anim.on?'foto animada':'foto pronta');message('Rosto localizado. Ative “reviver”, use seu microfone ou carregue um áudio. Se o contorno estiver deslocado, ajuste a boca.');}
+            else{setStatus('ajuste necessário');message('Nenhum rosto localizado. Use “ajustar boca” para marcar o contorno.');}
           }
-          rv.si++;
         }
-        const a = rv.syls[rv.si - 1];
-        if (a && t <= a.t1){
-          const p = Math.min(1, Math.max(0, (t - a.t0) / (a.t1 - a.t0)));
-          const env = Math.sin(Math.PI * p);
-          tgtM = Math.max(.05, a.amp * env);
-          tgtW = a.wide * env;
-        }
-        else if (a && rv.si < rv.syls.length){
-          tgtM = .07 + a.amp * .38;
-          tgtW = a.wide * .35;
-        }
-      }
-    }
-    const opening = tgtM > rv.mouth;
-    let v = rv.velM + (tgtM - rv.mouth) * (opening ? 620 : 430) * dt;
-    v *= Math.exp(-(opening ? 24 : 27) * dt);
-    rv.velM = v; rv.mouth = Math.min(1, Math.max(.02, rv.mouth + v * dt));
-    v = rv.velW + (tgtW - rv.width) * 150 * dt; v *= Math.exp(-17 * dt);
-    rv.velW = v; rv.width += v * dt;
-    rv.emph *= Math.exp(-dt * 5);
-    rv.nod *= Math.exp(-dt * 5.5);
-  }
-
-  function driveEmotion(t, dt){
-    if (t > rv.nextMood){
-      rv.nextMood = t + 3 + Math.random() * 4.5;
-      if (rv.moodPreset === 'auto'){
-        const pool = ['neutro','neutro','sorriso','neutro','serio','sorriso','surpresa','neutro','neutro'];
-        const m = { ...MOODS[pool[Math.floor(Math.random() * pool.length)]] };
-        m.smile *= .45 + Math.random() * .55;
-        m.brow  *= .6 + Math.random() * .4;
-        rv.tgt = m;
-      } else rv.tgt = { ...MOODS[rv.moodPreset] };
-      rv.asym = (Math.random() * 2 - 1) * .26;
-    }
-    if (t > rv.nextFlash){
-      rv.flashT = t;
-      rv.nextFlash = t + 5 + Math.random() * 9;
-    }
-    const fp = (t - rv.flashT) / .28;
-    rv.flash = (fp >= 0 && fp <= 1) ? Math.sin(Math.PI * fp) * .5 : 0;
-    if (t > rv.nextTwitch){
-      rv.twitchT = t;
-      rv.nextTwitch = t + 4 + Math.random() * 7;
-      rv.twitchSide = Math.random() < .5 ? -1 : 1;
-    }
-    const tp = (t - rv.twitchT) / .45;
-    rv.twitch = (tp >= 0 && tp <= 1) ? Math.sin(Math.PI * tp) : 0;
-    const k = 1 - Math.exp(-dt * 1.6);
-    const drift = {
-      smile: .05 * Math.sin(TAU * .07 * t + 1.3),
-      brow:  .05 * Math.sin(TAU * .05 * t + .4),
-      squint:.03 * Math.sin(TAU * .06 * t + 2.1)
-    };
-    for (const key in rv.tgt){
-      const want = (rv.tgt[key] || 0) + (drift[key] || 0);
-      rv.cur[key] = (rv.cur[key] || 0) + (want - (rv.cur[key] || 0)) * k;
-    }
-  }
-
-  function driveGaze(t, dt){
-    if (t > rv.nextSac){
-      rv.nextSac = t + .35 + Math.random() * 2.2;
-      const big = Math.random() < .15;
-      const talk = rv.mouth > .12;
-      rv.gazeTX = (Math.random() * 2 - 1) * (talk ? .3 : (big ? .9 : .45));
-      rv.gazeTY = (Math.random() * 2 - 1) * .2;
-      rv.sacT = t; rv.sacDur = .08 + Math.random() * .07;
-      if (big && Math.random() < .3) rv.nextBlink = t;
-    }
-    const p = Math.min(1, (t - rv.sacT) / rv.sacDur);
-    const e = 1 - Math.pow(1 - p, 3);
-    rv.gazeX = rv.gazeTX * e + .05 * Math.sin(TAU * .31 * t + 1);
-    rv.gazeY = rv.gazeTY * e;
-    const want = Math.abs(rv.gazeTX) > .45 ? rv.gazeTX * .7 : 0;
-    let v = rv.velH + (want - rv.hfX) * 5 * dt; v *= Math.exp(-7 * dt);
-    rv.velH = v; rv.hfX += v * dt;
-  }
-
-  function driveBlink(t){
-    if (t > rv.nextBlink){
-      rv.blinkStart = t;
-      rv.blinkDur = .12 + Math.random() * .08;
-      const dbl = Math.random() < .15;
-      rv.nextBlink = t + (dbl ? .28 : 1.4 + Math.random() * 3.2) + (rv.mouth > .2 ? -.35 : 0);
-    }
-    const bp = (t - rv.blinkStart) / rv.blinkDur;
-    rv.blink = (bp >= 0 && bp <= 1) ? Math.sin(Math.PI * bp) : 0;
-  }
-
-  /* um frame do REVIVER */
-  function drawRevive(box){
-    if (!radial.width) buildRadial();
-    if (!wctx) return;
-    const g = faceGeom(box);
-    buildMesh(g);
-    buildHeadMask(g);
-    buildPalette(g);
-    const t = (performance.now() - rv.t0) / 1000;
-    const dt = Math.min(.05, Math.max(0, t - rv.lastT));
-    rv.lastT = t;
-
-    driveMouth(t, dt);
-    driveEmotion(t, dt);
-    driveGaze(t, dt);
-    driveBlink(t);
-    computeHeadT(box, t);
-
-    wctx.drawImage(photoCv, 0, 0);
-    drawGazeInto(wctx, g);
-
-    drawHeadLayer(box);
-    computeRig(g);
-    renderMesh();
-
-    applyHeadT(ctx);
-    drawLidFlaps(g);
-    drawMouthInterior(g);
-    drawShadows(g);
-    ctx.restore();
-  }
-
-  /* ── efeitos (live e photo) ── */
-  function smoothFace(box, src){
-    const fw = box.w * 1.18, fh = box.h * 1.18;
-    const fx0 = box.cx - fw / 2, fy0 = box.cy - fh / 2;
-    tiny.width = Math.max(8, fw / 9 | 0);
-    tiny.height = Math.max(8, fh / 9 | 0);
-    tiny.getContext('2d').drawImage(src, fx0, fy0, fw, fh, 0, 0, tiny.width, tiny.height);
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(box.cx, box.cy, fw / 2, fh / 2, 0, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(tiny, 0, 0, tiny.width, tiny.height, fx0, fy0, fw, fh);
-    ctx.restore();
-  }
-
-  function puppet(box){
-    const m13 = P(13), m14 = P(14);
-    const open = Math.min(1, dist(m13, m14) / (box.h * 0.12));
-    const mc = { x: (m13.x + m14.x) / 2, y: (m13.y + m14.y) / 2 };
-    const mw = box.w * 0.38, mh = box.h * 0.30;
-    const s = 1 + open * 0.8;
-    ctx.save();
-    ctx.translate(mc.x, mc.y); ctx.scale(s, s * 1.15);
-    ctx.drawImage(video, mc.x - mw/2, mc.y - mh/2, mw, mh, -mw/2, -mh/2, mw, mh);
-    ctx.restore();
-    const jb = { x: box.cx - box.w * 0.30, y: box.y + box.h * 0.55, w: box.w * 0.60, h: box.h * 0.42 };
-    ctx.save();
-    ctx.translate(jb.x + jb.w / 2, jb.y); ctx.scale(1, 1 + open * 0.25);
-    ctx.drawImage(video, jb.x, jb.y, jb.w, jb.h, -jb.w/2, 0, jb.w, jb.h);
-    ctx.restore();
-    [[33,133],[362,263]].forEach(pair => {
-      const a = P(pair[0]), b = P(pair[1]);
-      const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const ew = Math.abs(b.x - a.x) * 2.2, eh = ew * 0.8;
-      ctx.save();
-      ctx.translate(c.x, c.y); ctx.scale(1.3, 1.3);
-      ctx.drawImage(video, c.x - ew/2, c.y - eh/2, ew, eh, -ew/2, -eh/2, ew, eh);
-      ctx.restore();
-    });
-  }
-
-  function freezeMask(){
-    if (mode === 'photo'){
-      if (!photoCv) return;
-      const box = faceBox();
-      const s = Math.max(2, Math.round(box.w * 1.18)), sh = Math.max(2, Math.round(box.h * 1.28));
-      maskCv = document.createElement('canvas');
-      maskCv.width = s; maskCv.height = sh;
-      maskCv.getContext('2d').drawImage(photoCv, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh);
-      if (!radial.width) buildRadial();
-      graft = {
-        dx: (Math.random() - .5) * box.w * 0.08,
-        dy: (Math.random() - .5) * box.h * 0.05,
-        s: 1.03 + Math.random() * 0.06,
-        rot: (Math.random() - .5) * 0.06
-      };
-      fx.swap = true;
-      btnSwap.classList.add('on');
-      setSt(rv.on ? 'foto animada' : 'enxerto gerado');
-      $ro.textContent = 'enxerto self-swap aplicado — escala ' + graft.s.toFixed(3) + ' · rotação ' +
-        (graft.rot * 57.3).toFixed(1) + '° · offset (' + graft.dx.toFixed(0) + ', ' + graft.dy.toFixed(0) +
-        ') px. As bordas de blending são o alvo do ELA do detector.';
-      Terminal.log('[FORGE::FACE] enxerto gerado no modo foto (self-swap com micro-desalinhamento)', 'ok');
-      return;
-    }
-    const box = faceBox();
-    const s = Math.max(2, Math.round(box.w * 1.15)), sh = Math.max(2, Math.round(box.h * 1.15));
-    maskCv = document.createElement('canvas');
-    maskCv.width = s; maskCv.height = sh;
-    maskCv.getContext('2d').drawImage(video, box.cx - s/2, box.cy - sh/2, s, sh, 0, 0, s, sh);
-    if (!radial.width) buildRadial();
-    fx.swap = true;
-    btnSwap.classList.add('on');
-    setSt('máscara pronta');
-    $ro.textContent = 'máscara congelada — a face capturada é re-projetada sobre o vídeo ao vivo, alinhada pela linha dos olhos, com feather radial.';
-    Terminal.log('[FORGE::FACE] máscara congelada — swap de self ativado (blending radial)', 'ok');
-  }
-
-  function pasteMaskLive(box){
-    const ang = lm ? Math.atan2(P(362).y - P(133).y, P(362).x - P(133).x) : 0;
-    const MW = box.w * 1.22, MH = box.h * 1.28;
-    mtmp.width = Math.round(MW); mtmp.height = Math.round(MH);
-    const m = mtmp.getContext('2d');
-    m.clearRect(0, 0, MW, MH);
-    m.globalAlpha = 0.96;
-    m.drawImage(maskCv, 0, 0, MW, MH);
-    m.globalAlpha = 1;
-    m.globalCompositeOperation = 'destination-in';
-    m.drawImage(radial, 0, 0, MW, MH);
-    m.globalCompositeOperation = 'source-over';
-    ctx.save();
-    ctx.translate(box.cx, box.cy);
-    ctx.rotate(ang);
-    ctx.drawImage(mtmp, -MW / 2, -MH / 2);
-    ctx.restore();
-  }
-
-  function pasteMaskPhoto(box){
-    const MW = box.w * 1.18 * graft.s, MH = box.h * 1.28 * graft.s;
-    mtmp.width = Math.round(MW); mtmp.height = Math.round(MH);
-    const m = mtmp.getContext('2d');
-    m.clearRect(0, 0, MW, MH);
-    m.globalAlpha = 0.96;
-    m.drawImage(maskCv, 0, 0, MW, MH);
-    m.globalAlpha = 1;
-    m.globalCompositeOperation = 'destination-in';
-    m.drawImage(radial, 0, 0, MW, MH);
-    m.globalCompositeOperation = 'source-over';
-    const ang = lm ? Math.atan2(P(362).y - P(133).y, P(362).x - P(133).x) : 0;
-    ctx.save();
-    ctx.translate(box.cx + graft.dx, box.cy + graft.dy);
-    ctx.rotate(ang + graft.rot);
-    ctx.drawImage(mtmp, -MW / 2, -MH / 2);
-    ctx.restore();
-  }
-
-  function glitch(box, src){
-    if (Math.random() < .45) return;
-    const n = 4 + (Math.random() * 6 | 0);
-    for (let i = 0; i < n; i++){
-      const gw = box.w * (0.06 + Math.random() * 0.16), gh = box.h * (0.02 + Math.random() * 0.05);
-      const gx = box.x + Math.random() * (box.w - gw), gy = box.y + Math.random() * (box.h - gh);
-      const dx = (Math.random() - .5) * box.w * 0.14, dy = (Math.random() - .5) * box.h * 0.04;
-      ctx.drawImage(src, gx, gy, gw, gh, gx + dx, gy + dy, gw, gh);
-    }
-  }
-
-  /* marca d'água: todo quadro/clipe gerado pela FORGE sai identificado como sintético */
-  function watermark(){
-    const fs = Math.max(11, Math.round(W * 0.026));
-    ctx.save();
-    ctx.font = '700 ' + fs + 'px "JetBrains Mono", monospace';
-    ctx.textBaseline = 'bottom';
-    const txt = 'SINTÉTICO · SYNTH::DETECT FORGE';
-    const pad = Math.round(fs * 0.5);
-    const tw = ctx.measureText(txt).width;
-    ctx.fillStyle = 'rgba(8,12,9,.62)';
-    ctx.fillRect(pad - 4, H - pad - fs - 4, tw + 8, fs + 8);
-    ctx.fillStyle = 'rgba(255,95,86,.95)';
-    ctx.fillText(txt, pad, H - pad);
-    ctx.restore();
-  }
-
-  function hud(box){
-    const c = 14;
-    ctx.strokeStyle = 'rgba(78,224,141,.65)'; ctx.lineWidth = 1.5;
-    [[box.x, box.y, 1, 1],[box.x + box.w, box.y, -1, 1],[box.x, box.y + box.h, 1, -1],[box.x + box.w, box.y + box.h, -1, -1]]
-      .forEach(([x, y, sx, sy]) => {
-        ctx.beginPath();
-        ctx.moveTo(x + sx * c, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * c);
-        ctx.stroke();
+        syncControls();
       });
-    if (lm){
-      ctx.fillStyle = 'rgba(78,224,141,.5)';
-      for (let i = 0; i < lm.length; i += 6)
-        ctx.fillRect(lm[i].x * W, lm[i].y * H, 1.5, 1.5);
-    }
+      return fm;
+    })();
+    try{return await meshPromise;}catch(e){meshPromise=null;if(fm){try{fm.close();}catch{}fm=null;}throw e;}
+  }
+  function sendMesh(token){
+    const source=mode==='photo'?photo:video;
+    meshSend=meshSend.catch(()=>{}).then(async()=>{
+      if(token!==generation||!source||!fm)return;
+      meshGeneration=token;await fm.send({image:source});
+    });return meshSend;
+  }
+  async function loadTracking(token){
+    try{
+      await ensureMesh();if(token!==generation)return;
+      if(mode==='photo'){await sendMesh(token);return;}
+      if(tracking)return;tracking=true;
+      try{while(running&&mode==='live'){const current=generation;await sendMesh(current);await sleep(60);}}
+      finally{tracking=false;}
+    }catch(e){if(token===generation){setStatus(manual?(anim.on?'foto animada':'foto pronta'):'tracking indisponível');
+      message(manual?'Contorno manual ativo. O tracking automático não está disponível.':'O tracking não está disponível. No modo foto, use “ajustar boca”; a animação não usa posição estimada automaticamente.');Terminal.log('[FORGE::FACE] '+e.message,'warn');}}
   }
 
-  /* ── loop principal ── */
-  function loop(){
-    if (!running) return;
-    if (mode === 'photo' && !photoCv){ running = false; return; }
-    const src = mode === 'photo' ? photoCv : video;
-    ctx.drawImage(src, 0, 0, W, H);
-    const box = faceBox();
-    if (mode === 'photo'){
-      if (rv.on) drawRevive(box);
-      if (fx.smooth) smoothFace(box, src);
-      if (fx.swap && maskCv) pasteMaskPhoto(box);
-      if (fx.glitch) glitch(box, src);
-    } else {
-      if (fx.smooth) smoothFace(box, src);
-      if (fx.puppet && lm) puppet(box);
-      if (fx.swap && maskCv) pasteMaskLive(box);
-      if (fx.glitch) glitch(box, src);
+  const CAL_LABELS=['canto esquerdo da abertura da boca','canto direito da abertura da boca','centro da borda interna do lábio superior','centro da borda interna do lábio inferior'];
+  function toggleCalibration(){
+    if(mode!=='photo'||recording)return;
+    if(calibration){calibration=null;guide.hidden=true;$('#ffCalibrate').classList.remove('on');syncControls();return;}
+    calibration={points:[],resume:anim.on};anim.on=false;compare=false;stopPlayback();
+    guide.hidden=false;$('#ffCalibrate').classList.add('on');guide.tabIndex=0;guide.focus();
+    $('#ffCalHint').textContent='1/4 · Clique no '+CAL_LABELS[0]+'. Esc cancela; Backspace desfaz.';syncControls();
+  }
+  function calibrateAt(x,y){
+    if(!calibration)return;
+    calibration.points.push({x:clamp(x,0,W-1),y:clamp(y,0,H-1)});
+    const points=calibration.points;
+    if(points.length===4){
+      const span=distance(points[0],points[1]),c=mid(points[0],points[1]);
+      const normal={x:-(points[1].y-points[0].y)/span,y:(points[1].x-points[0].x)/span};
+      const y1=(points[2].x-c.x)*normal.x+(points[2].y-c.y)*normal.y;
+      const y2=(points[3].x-c.x)*normal.x+(points[3].y-c.y)*normal.y;
+      if(span<8||points[1].x<=points[0].x||y2<y1-1||y2-y1>span*.55){
+        calibration.points=[];$('#ffCalHint').textContent='Pontos inconsistentes. Recomece pelo canto esquerdo da abertura.';return;
+      }
+      const resume=calibration.resume;manual=points.slice();calibration=null;guide.hidden=true;$('#ffCalibrate').classList.remove('on');
+      buildGeometry();if(resume)toggleRevive(true);setStatus(anim.on?'foto animada':'boca ajustada');
+      message('Boca ajustada. Use intensidade baixa para preservar lábios, barba e textura.');syncControls();return;
     }
-    watermark();
-    /* o HUD (pontos verdes dos landmarks) não pode ser gravado por cima da boca na reencenação/clipe */
-    if (!rv.on && !rec) hud(box);
-    requestAnimationFrame(loop);
+    $('#ffCalHint').textContent=(points.length+1)+'/4 · Clique no '+CAL_LABELS[points.length]+'. Esc cancela; Backspace desfaz.';
+  }
+  function drawGuide(){
+    if(!calibration)return;gx.clearRect(0,0,W,H);gx.font=Math.max(15,W*.021)+'px monospace';
+    const ps=calibration.points;
+    if(ps.length>1){gx.beginPath();gx.moveTo(ps[0].x,ps[0].y);gx.lineTo(ps[1].x,ps[1].y);gx.strokeStyle='#4ee08d';gx.lineWidth=2;gx.stroke();}
+    ps.forEach((p,i)=>{gx.beginPath();gx.arc(p.x,p.y,Math.max(4,W*.006),0,TAU);gx.fillStyle='#4ee08d';gx.fill();gx.fillText(String(i+1),p.x+10,p.y-8);});
   }
 
-  /* ── capturas → artefatos ── */
+  function toggleRevive(force){
+    if(mode!=='photo'||!geometry||calibration)return;
+    anim.on=typeof force==='boolean'?force:!anim.on;
+    if(anim.on){anim.t0=performance.now();anim.last=0;anim.mouth=0;anim.wide=0;anim.nextBlink=1.8;anim.blinkStart=-2;}
+    else stopPlayback();
+    setStatus(anim.on?'foto animada':'foto pausada');syncControls();
+    message(anim.on?'Animação ativa. Ajuste a intensidade e compare com a foto. A boca responde à energia do áudio; não há reconhecimento de fonemas.':'Animação pausada. A imagem original está visível.');
+  }
+  async function ensureAudio(){
+    if(!audioContext){
+      const Ctx=window.AudioContext||window.webkitAudioContext;
+      if(!Ctx)throw new Error('Web Audio indisponível.');
+      audioContext=new Ctx();analyser=audioContext.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.15;
+      audioOut=audioContext.createMediaStreamDestination();tbuf=new Float32Array(analyser.fftSize);fbuf=new Float32Array(analyser.frequencyBinCount);
+    }
+    await audioContext.resume();return audioContext;
+  }
+  function stopPlayback(){if(audioSource){const s=audioSource;audioSource=null;s.onended=null;try{s.stop();s.disconnect();}catch{}}syncControls();}
+  async function toggleMic(){
+    if(recording||clipLoading||micLoading||!geometry)return;
+    if(audioMode==='mic'){stopAudio();message('Microfone encerrado.');return;}
+    const token=generation;micLoading=true;syncControls();
+    try{
+      if(!navigator.mediaDevices||!window.isSecureContext)throw new Error('O microfone requer HTTPS ou localhost.');
+      stopAudio();const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+      if(token!==generation){s.getTracks().forEach(t=>t.stop());return;}
+      mic=s;await ensureAudio();
+      if(token!==generation){s.getTracks().forEach(t=>t.stop());return;}
+      const source=audioContext.createMediaStreamSource(s);source.connect(analyser);source.connect(audioOut);
+      audioMode='mic';noiseFloor=.008;peak=.05;audioStarted=audioContext.currentTime;if(!anim.on)toggleRevive(true);
+      setStatus('foto + microfone');message('Fale ao microfone. A gravação inclui sua voz; o microfone não é reproduzido nos alto-falantes.');syncControls();
+    }catch(e){if(token===generation){stopAudio();message('Microfone indisponível: '+e.message);}}
+    finally{if(token===generation){micLoading=false;syncControls();}}
+  }
+  async function loadAudio(){
+    const f=$('#ffAudioInput').files[0];$('#ffAudioInput').value='';if(!f||recording||audioLoading)return;
+    if(f.size>30*1024*1024){message('Escolha um áudio de até 30 MB e 120 segundos.');return;}
+    const token=generation;audioLoading=true;syncControls();
+    try{
+      stopAudio();await ensureAudio();const ac=audioContext;
+      const buffer=await ac.decodeAudioData(await f.arrayBuffer());
+      if(token!==generation)return;
+      if(buffer.duration>120)throw new Error('Limite de 120 segundos por áudio.');
+      audioBuffer=buffer;audioName=f.name;audioMode='file';$('#ffAudioPlayer').hidden=false;
+      $('#ffAudioName').textContent=audioName+' · '+buffer.duration.toFixed(1)+' s';
+      message('Áudio carregado. Use “tocar áudio” para prévia ou “gravar clipe” para iniciar do começo e exportar a fala.');
+    }catch(e){if(token===generation)message('Falha no áudio: '+e.message);}
+    finally{if(token===generation){audioLoading=false;syncControls();}}
+  }
+  async function playAudio(restart=false){
+    if(!audioBuffer||!geometry)return;
+    if(audioSource&&!restart){stopPlayback();return;}
+    const token=generation;stopPlayback();
+    try{
+      if(mic){mic.getTracks().forEach(t=>t.stop());mic=null;}
+      await ensureAudio();if(token!==generation)return;
+      const source=audioContext.createBufferSource();source.buffer=audioBuffer;
+      source.connect(analyser);source.connect(audioOut);source.connect(audioContext.destination);
+      source.onended=()=>{if(audioSource===source){audioSource=null;anim.mouth=0;audioLevel=0;syncControls();}};
+      audioSource=source;audioMode='file';peak=.05;source.start();audioStarted=audioContext.currentTime;
+      if(!anim.on)toggleRevive(true);syncControls();setStatus('foto + áudio');
+    }catch(e){if(token===generation)message('Não foi possível tocar o áudio: '+e.message);}
+  }
+
+  function updateAnimation(now){
+    const t=(now-anim.t0)/1000,dt=clamp(t-anim.last,0,.07);anim.last=t;
+    let target=0,wide=0;
+    if((audioMode==='mic'||audioSource)&&analyser){
+      analyser.getFloatTimeDomainData(tbuf);let sum=0;for(const v of tbuf)sum+=v*v;
+      const rms=Math.sqrt(sum/tbuf.length);audioLevel=rms;
+      if(audioMode==='mic'&&rms<Math.max(.016,noiseFloor*1.8))noiseFloor=lerp(noiseFloor,rms,1-Math.exp(-dt*1.2));
+      const gate=audioMode==='mic'?Math.max(.006,noiseFloor*1.6):.003;
+      peak=Math.max(.05,rms,peak*Math.exp(-dt*.18));
+      const sensitivity=Number($('#ffSensitivity').value)/100;
+      const voiced=Math.max(0,rms-gate);target=clamp(Math.sqrt(voiced/Math.max(.04,peak-gate))*.78*sensitivity);
+      analyser.getFloatFrequencyData(fbuf);let low=0,high=0;
+      for(let i=1;i<fbuf.length;i++){
+        const f=i*audioContext.sampleRate/analyser.fftSize;if(f<180||f>4800)continue;
+        const energy=Math.pow(10,fbuf[i]/20);if(f<1200)low+=energy;else high+=energy;
+      }
+      wide=target>.04?clamp((high/(low+high+1e-9)-.36)*1.1,-.35,.45):0;
+    }else if(audioMode==='demo'){
+      // Ritmo de demonstração; não é fala sintetizada nem sincronização fonética.
+      const cycle=t%4.8;
+      if(cycle<3){target=Math.max(0,Math.sin(TAU*2.5*cycle))*.46*(.75+.25*Math.sin(TAU*.6*cycle));wide=.22*Math.sin(TAU*.8*cycle)*target;}
+      audioLevel=0;
+    }
+    anim.mouth=lerp(anim.mouth,target,1-Math.exp(-dt/(target>anim.mouth?.035:.065)));
+    anim.wide=lerp(anim.wide,wide,1-Math.exp(-dt/.10));
+    if(t>anim.nextBlink){anim.blinkStart=t;anim.nextBlink=t+2.6+Math.random()*2.3;}
+    const bp=(t-anim.blinkStart)/.16;anim.blink=bp>=0&&bp<=1?Math.sin(Math.PI*bp):0;
+    const moods={neutro:[0,0],sorriso:[.35,.08],surpresa:[0,.4],serio:[0,-.15],auto:[.08,.03]};
+    const desired=moods[anim.mood]||moods.neutro;
+    anim.smile=lerp(anim.smile,desired[0],1-Math.exp(-dt*3));anim.brow=lerp(anim.brow,desired[1],1-Math.exp(-dt*3));
+    const intensity=Number($('#ffIntensity').value)/100,motion=$('#ffMotion').checked&&lm;
+    return {g:geometry,drop:anim.mouth*geometry.b.h*.065*intensity,
+      widthScale:1+anim.wide*.10*intensity+anim.smile*.035*intensity,
+      smile:anim.smile*intensity,brow:motion?anim.brow*intensity:0,blink:motion?anim.blink:0,
+      rotation:motion?.003*Math.sin(TAU*.22*t)*intensity:0,
+      tx:motion?geometry.b.w*.002*Math.sin(TAU*.17*t)*intensity:0,
+      ty:motion?geometry.b.h*.0015*Math.sin(TAU*.21*t)*intensity:0};
+  }
+  function watermark(){
+    const fs=Math.max(11,Math.round(W*.018)),pad=Math.max(7,Math.round(W*.013));
+    ctx.save();ctx.font='700 '+fs+'px monospace';ctx.textBaseline='bottom';
+    const text='SINTÉTICO · SYNTH::DETECT · TESTE EDUCACIONAL';const tw=ctx.measureText(text).width;
+    ctx.fillStyle='rgba(8,12,9,.72)';ctx.fillRect(pad-4,H-pad-fs-5,Math.min(tw+8,W-pad),fs+9);
+    ctx.fillStyle='#ff8a82';ctx.fillText(text,pad,H-pad,W-pad*2);ctx.restore();
+  }
+  function applyEffects(){
+    const b=boxForFace();
+    if(fx.smooth){
+      const tiny=document.createElement('canvas');tiny.width=Math.max(8,Math.round(b.w/10));tiny.height=Math.max(8,Math.round(b.h/10));
+      tiny.getContext('2d').drawImage(cvs,b.x,b.y,b.w,b.h,0,0,tiny.width,tiny.height);
+      ctx.save();ctx.beginPath();ctx.ellipse(b.cx,b.cy,b.w*.5,b.h*.5,0,0,TAU);ctx.clip();ctx.drawImage(tiny,b.x,b.y,b.w,b.h);ctx.restore();
+    }
+    if(fx.puppet&&mode==='live'&&lm){
+      const c=mid(point(13),point(14)),open=clamp(distance(point(13),point(14))/b.h/.12);
+      ctx.save();ctx.translate(c.x,c.y);ctx.scale(1+open*.35,1+open*.45);ctx.drawImage(video,c.x-b.w*.22,c.y-b.h*.12,b.w*.44,b.h*.24,-b.w*.22,-b.h*.12,b.w*.44,b.h*.24);ctx.restore();
+    }
+    if(fx.swap&&mask){
+      ctx.save();ctx.translate(b.cx,b.cy);ctx.rotate(.018);ctx.globalAlpha=.88;ctx.drawImage(mask,-b.w*.515,-b.h*.515,b.w*1.03,b.h*1.03);ctx.restore();
+    }
+    if(fx.glitch&&Math.random()<.35){
+      const y=b.y+Math.random()*b.h;ctx.drawImage(cvs,b.x,y,b.w,Math.max(1,b.h*.025),b.x+b.w*.03,y,b.w,Math.max(1,b.h*.025));
+    }
+  }
+  function render(now){
+    const source=mode==='photo'?photo:video;if(!source||!W)return;
+    ctx.drawImage(source,0,0,W,H);
+    if(mode==='photo'&&anim.on&&geometry&&!compare&&!calibration){renderer.render(updateAnimation(now));applyEffects();}
+    else if(!compare&&!calibration)applyEffects();
+    watermark();drawGuide();
+  }
+  function loop(now){
+    raf=0;if(!running)return;
+    try{render(now);}catch(e){anim.on=false;setStatus('animação interrompida');message('Falha de renderização: '+e.message);console.error(e);syncControls();}
+    frameCount++;
+    if(now-lastStats>600){
+      const fps=frameCount*1000/Math.max(1,now-fpsStart);
+      $('#ffMetrics').textContent=(mode==='photo'&&renderer?renderer.kind:'câmera')+' · '+W+'×'+H+' · '+Math.round(fps)+' fps';
+      $('#ffMouthMeter').value=anim.on?anim.mouth:0;$('#ffAudioMeter').value=clamp(audioLevel*5);
+      lastStats=now;frameCount=0;fpsStart=now;
+    }
+    raf=requestAnimationFrame(loop);
+  }
+  function freezeMask(){
+    if(mode==='idle'||recording)return;const b=boxForFace();mask=document.createElement('canvas');mask.width=Math.max(2,Math.round(b.w));mask.height=Math.max(2,Math.round(b.h));
+    mask.getContext('2d').drawImage(mode==='photo'?photo:video,b.x,b.y,b.w,b.h,0,0,mask.width,mask.height);
+    fx.swap=true;$('#ffFx [data-fx="swap"]').classList.add('on');message('Enxerto da própria face aplicado. Para maior naturalidade, desligue os efeitos de demonstração.');
+  }
   function shot(){
-    cvs.toBlob(b => {
-      if (!b) return;
-      const name = (mode === 'photo' ? 'forge_foto_' : 'forge_quadro_') + (++seq) + '.jpg';
-      ForgeArtifacts.add(b, name, 'image');
-      Terminal.log('[FORGE::FACE] quadro capturado: ' + name + ' (modo ' + mode + ')', 'ok');
-    }, 'image/jpeg', 0.92);
+    if(mode==='idle'||calibration)return;const was=compare;compare=false;render(performance.now());compare=was;
+    cvs.toBlob(blob=>{if(blob)ForgeArtifacts.add(blob,'forge_quadro_'+(++sequence)+'.png','image');},'image/png');
   }
-
-  function clip(){
-    if (rec) return;
-    const withAudio = rv.voice && rv.micStream && rv.micStream.getAudioTracks().length > 0;
-    const mimes = withAudio
-      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
-      : ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
-    const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
-    const s2 = cvs.captureStream(30);
-    const streamRec = withAudio
-      ? new MediaStream([...s2.getVideoTracks(), ...rv.micStream.getAudioTracks()])
-      : s2;
-    rec = new MediaRecorder(streamRec, mime ? { mimeType: mime } : undefined);
-    const parts = [];
-    rec.ondataavailable = e => e.data.size && parts.push(e.data);
-    rec.onstop = () => {
-      const b = new Blob(parts, { type: rec.mimeType || 'video/webm' });
-      const name = 'forge_clipe_' + (++seq) + '.webm';
-      ForgeArtifacts.add(b, name, 'video');
-      Terminal.log('[FORGE::FACE] clipe gravado: ' + name + ' (' + fmtBytes(b.size) + ')' +
-                   (withAudio ? ' · com trilha de voz (deepfake completo: vídeo + áudio)' : ''), 'ok');
-      rec = null;
-      $('#ffClip').disabled = false;
-      $('#ffClip').classList.remove('on');
-      setSt(rv.on ? (rv.voice ? 'foto animada (voz)' : 'foto animada') : (mode === 'photo' ? 'foto carregada' : 'câmera ativa'));
-    };
-    rec.start();
-    $('#ffClip').disabled = true;
-    $('#ffClip').classList.add('on');
-    setSt('gravando clipe…');
-    setTimeout(() => { try { rec && rec.stop(); } catch {} }, 5000);
+  async function clip(){
+    if(recording){if(recording.state!=='inactive')recording.stop();return;}
+    if(clipLoading||mode==='idle'||calibration||mode==='photo'&&!geometry)return;
+    if(!cvs.captureStream||!window.MediaRecorder){message('Gravação não suportada neste navegador. A captura de quadro continua disponível.');return;}
+    const token=generation;clipLoading=true;syncControls();
+    try{
+      compare=false;if(mode==='photo'&&!anim.on)toggleRevive(true);
+      if(audioBuffer&&audioMode==='file')await playAudio(true);
+      if(token!==generation)return;
+      render(performance.now());
+      const videoStream=cvs.captureStream(30),audioTrack=audioOut&&(audioSource||mic)?audioOut.stream.getAudioTracks()[0]:null;
+      const tracks=[...videoStream.getVideoTracks()];if(audioTrack)tracks.push(audioTrack.clone());
+      const stream=new MediaStream(tracks);
+      const mimes=audioTrack?['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/mp4','video/webm']:
+        ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/mp4','video/webm'];
+      const mime=mimes.find(m=>MediaRecorder.isTypeSupported(m));
+      let r;try{r=new MediaRecorder(stream,{...(mime?{mimeType:mime}:{}),videoBitsPerSecond:clamp(W*H*30*.15,2000000,12000000),audioBitsPerSecond:128000});}
+      catch(e){tracks.forEach(t=>t.stop());throw e;}
+      const chunks=[],duration=Number($('#ffClipDuration').value)||5;recording=r;
+      r.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+      r.onerror=e=>{message('Falha na gravação: '+(e.error&&e.error.message||'erro de codec'));if(r.state!=='inactive')r.stop();};
+      r.onstop=()=>{
+        clearTimeout(recordTimer);tracks.forEach(t=>t.stop());if(recording===r)recording=null;
+        if(chunks.length){const type=r.mimeType||mime||'video/webm',blob=new Blob(chunks,{type});
+          ForgeArtifacts.add(blob,'forge_clipe_'+(++sequence)+(type.includes('mp4')?'.mp4':'.webm'),'video');
+          Terminal.log('[FORGE::FACE] clipe '+(audioTrack?'com áudio':'sem áudio')+' · '+fmtBytes(blob.size),'ok');}
+        if(audioMode==='file')stopPlayback();
+        setStatus(mode==='idle'?'parado':anim.on?'foto animada':'sessão pronta');syncControls();
+      };
+      try{r.start(250);}catch(e){tracks.forEach(t=>t.stop());recording=null;throw e;}
+      recordTimer=setTimeout(()=>{if(r.state!=='inactive')r.stop();},duration*1000);
+      setStatus('gravando '+duration+' s');syncControls();
+    }catch(e){message('Não foi possível gravar: '+e.message);}
+    finally{if(token===generation){clipLoading=false;syncControls();}}
   }
-
   function init(){
-    $('#ffStart').addEventListener('click', start);
-    empty.addEventListener('click', start);
-    empty.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); start(); }
+    $('#ffStart').addEventListener('click',startCamera);$('#ffStop').addEventListener('click',stop);
+    empty.addEventListener('click',()=>{if($('#ffConsent').checked)$('#ffPhotoInput').click();else message('Confirme o consentimento para carregar a foto, ou use “câmera”.');});
+    empty.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();empty.click();}});
+    $('#ffConsent').addEventListener('change',()=>{if(!$('#ffConsent').checked&&mode==='photo')stop();syncControls();});
+    $('#ffPhotoBtn').addEventListener('click',()=>$('#ffPhotoInput').click());$('#ffPhotoInput').addEventListener('change',loadPhoto);
+    $('#ffRevive').addEventListener('click',()=>toggleRevive());$('#ffVoice').addEventListener('click',toggleMic);
+    $('#ffAudioBtn').addEventListener('click',()=>$('#ffAudioInput').click());$('#ffAudioInput').addEventListener('change',loadAudio);
+    $('#ffAudioPlay').addEventListener('click',()=>playAudio());$('#ffAudioClear').addEventListener('click',()=>{stopAudio(false);message('Áudio removido; demonstração procedural disponível.');});
+    $('#ffCalibrate').addEventListener('click',toggleCalibration);
+    guide.addEventListener('pointerdown',e=>{if(!calibration)return;const r=guide.getBoundingClientRect();calibrateAt((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height);});
+    guide.addEventListener('keydown',e=>{if(e.key==='Escape')toggleCalibration();else if(e.key==='Backspace'&&calibration){e.preventDefault();calibration.points.pop();$('#ffCalHint').textContent=(calibration.points.length+1)+'/4 · Clique no '+CAL_LABELS[calibration.points.length]+'.';}});
+    $('#ffCompare').addEventListener('click',()=>{compare=!compare;$('#ffCompare').textContent=compare?'ver animação':'ver original';syncControls();});
+    $('#ffIntensity').addEventListener('input',()=>{$('#ffIntensityValue').textContent=$('#ffIntensity').value+'%';});
+    $('#ffSensitivity').addEventListener('input',()=>{$('#ffSensitivityValue').textContent=(Number($('#ffSensitivity').value)/100).toFixed(1)+'×';});
+    for(const b of $$('#ffMood .chip'))b.addEventListener('click',()=>{anim.mood=b.dataset.mood;$$('#ffMood .chip').forEach(e=>e.classList.toggle('on',e===b));});
+    for(const b of $$('#ffFx .chip'))b.addEventListener('click',()=>{
+      const k=b.dataset.fx;if(k==='swap'&&!mask){message('Use “congelar máscara” primeiro.');return;}
+      fx[k]=!fx[k];b.classList.toggle('on',fx[k]);
     });
-    $consent.addEventListener('change', () => {
-      $photoBtn.disabled = !$consent.checked;
-      if (!$consent.checked) $ro.textContent = 'carregamento de foto liberado apenas com a confirmação de consentimento acima';
-    });
-    $photoBtn.addEventListener('click', () => $photoIn.click());
-    $photoIn.addEventListener('change', loadPhoto);
-    $reviveBtn.addEventListener('click', toggleRevive);
-    $voiceBtn.addEventListener('click', toggleVoiceDrive);
-
-    moodBtns.forEach(b => b.addEventListener('click', () => {
-      if (b.disabled) return;
-      moodBtns.forEach(c => c.classList.toggle('on', c === b));
-      rv.moodPreset = b.dataset.mood;
-      rv.nextMood = 0;
-      Terminal.log('[FORGE::FACE] humor: ' + rv.moodPreset, 'plain');
-    }));
-
-    fxBtns.forEach(b => b.addEventListener('click', () => {
-      if (b.disabled) return;
-      const k = b.dataset.fx;
-      if (k === 'swap' && !maskCv){ $ro.textContent = 'congele a máscara/enxerto primeiro (botão abaixo)'; return; }
-      fx[k] = !fx[k];
-      b.classList.toggle('on', fx[k]);
-      Terminal.log('[FORGE::FACE] efeito ' + k + ' ' + (fx[k] ? 'ativado' : 'desativado') + ' (modo ' + mode + ')', 'plain');
-    }));
-    $('#ffMask').addEventListener('click', freezeMask);
-    $('#ffShot').addEventListener('click', shot);
-    $('#ffClip').addEventListener('click', clip);
+    $('#ffMask').addEventListener('click',freezeMask);$('#ffShot').addEventListener('click',shot);$('#ffClip').addEventListener('click',clip);
+    window.addEventListener('pagehide',()=>{stop();});syncControls();
   }
-  return { init };
+  return {init};
 })();
+
 
 /* ═══════════════════════════════════════════════════════════════
    APP — orquestração da bancada de DETECÇÃO
@@ -4132,11 +3400,11 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.12');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v7.0');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
-    Terminal.log('bancada ofensiva: conversão de voz + reencenação (boca v6: arco dental natural — os dentes seguem a boca) — webcam, foto ou REVIVER', 'plain');
+    Terminal.log('bancada ofensiva: conversão de voz + animação com textura fotográfica, calibração e áudio — v7.0', 'plain');
     Terminal.log('processamento 100% local · nenhum byte sai do navegador', 'plain');
     Terminal.log('aguardando evidência — arraste uma mídia, cole com Ctrl+V ou gere uma na bancada ofensiva', 'run');
   }

@@ -1,26 +1,9 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- ══════════════════════════════════════════════════════════════════
-     SYNTH::DETECT v6.12 — Bancada Forense + Bancada Ofensiva (FORGE)
-     IMAGEM + ÁUDIO + VÍDEO · 3 arquivos · zero build · zero config
-
-     DETECÇÃO:  contêiner → metadados → C2PA/ELA/acústica → assinaturas
-     OFENSIVA:  FORGE::VOICE (conversão de voz, própria voz, tempo real)
-                FORGE::FACE  (reencenação facial: webcam OU foto estática
-                com REVIVER: warping por faixas — mandíbula com perfil
-                de rotação, pálpebras que esticam, expressões/sacadas
-                de olhar/ênfase por voz, humor controlável)
-     A FORGE opera APENAS sobre sinais do próprio operador (mic/câmera/
-     imagem própria, com consentimento). Sem compositação entre imagens.
-     Artefatos alimentam a bancada de detecção — loop sintetizar→detectar.
-
-     DEPLOY (GitHub Pages): os 3 arquivos na RAIZ do repositório;
-     Settings → Pages → Deploy from branch → main/(root). Caminhos
-     relativos funcionam no subcaminho /repo/. HTTPS nativo (exigido
-     por getUserMedia). Recomendado: arquivo vazio .nojekyll na raiz.
-     Local: use `npx serve` (file:// bloqueia mic/câmera).
-══════════════════════════════════════════════════════════════════ -->
+<!-- SYNTH::DETECT v7.0 · GitHub Pages · HTML/CSS/JS · sem build.
+     Para testar localmente: python -m http.server 8000.
+     Mídia processada no navegador. Tracking e fontes dependem de CDN. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
@@ -71,7 +54,7 @@
     <p class="eyebrow">// DETECÇÃO & MECÂNICA OFENSIVA · TUDO LOCAL · NENHUM UPLOAD PARA SERVIDOR</p>
     <h1>Forense de mídia<br>na era da <em>IA ofensiva</em></h1>
     <p class="lead">
-      Duas bancadas no mesmo projeto. A <strong>detecção</strong> dissecta arquivos byte a byte — estrutura,
+      Duas bancadas no mesmo projeto. A <strong>detecção</strong> inspeciona arquivos byte a byte — estrutura,
       metadados, C2PA, acústica, quadros. A <strong>ofensiva</strong> opera ao vivo sobre os seus próprios
       sinais: conversão de voz em tempo real e reencenação facial — por webcam ou <strong>sobre uma foto sua
       parada, que ganha fala, expressões e olhar vivo</strong> — gerando o corpus sintético que fecha o loop
@@ -170,7 +153,7 @@
           <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
           <div class="term-head">
             <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span class="term-title">forensic-bench — synth-detect v6.12 · img+aud+vid+forge</span>
+            <span class="term-title">forensic-bench — synth-detect v7.0 · img+aud+vid+forge</span>
             <span class="term-badge">LOCAL</span>
           </div>
           <div class="term-body" id="termBody" role="log" aria-live="polite" aria-label="Log da análise em tempo real"></div>
@@ -198,10 +181,10 @@
     </div>
 
     <ol class="attack-steps" aria-label="Pipeline de um ataque de mídia sintética">
-      <li class="astep"><b>01 · COLETA</b><span>3 s de áudio público bastam para a impressão vocal; ~30 s de vídeo, para o rosto. Uma foto frontal também basta.</span></li>
-      <li class="astep"><b>02 · MODELO</b><span>O conversor é treinado/condicionado na amostra-alvo (RVC, XTTS, encoders de face).</span></li>
-      <li class="astep"><b>03 · REENCENAÇÃO</b><span>A voz-alvo fala o roteiro do atacante; landmarks dirigem a face-alvo — foto ou vídeo.</span></li>
-      <li class="astep"><b>04 · BLEND + ENCODE</b><span>Composição e re-encode — a etapa onde a forense ataca (ELA, blending, codec).</span></li>
+      <li class="astep"><b>01 · COLETA</b><span>Uma foto frontal e uma amostra de voz permitem demonstrar reencenação. Qualidade, pose e iluminação afetam o resultado.</span></li>
+      <li class="astep"><b>02 · MODELO</b><span>Nesta bancada: landmarks, deformação da foto e DSP. Modelos neurais são uma etapa distinta, não incluída aqui.</span></li>
+      <li class="astep"><b>03 · REENCENAÇÃO</b><span>A energia do seu áudio dirige a abertura da boca. Dentes visíveis e lábios vêm da foto original.</span></li>
+      <li class="astep"><b>04 · BLEND + ENCODE</b><span>Grave amostras identificadas e compare indícios de arquivo. ELA e codecs não certificam deepfake.</span></li>
     </ol>
 
     <div class="forge-grid">
@@ -239,6 +222,7 @@
 
         <div class="fg-controls">
           <button class="chip" id="ffStart" type="button">▷ câmera (ao vivo)</button>
+          <button class="chip" id="ffStop" type="button" disabled>■ encerrar sessão</button>
           <button class="chip" id="ffPhotoBtn" type="button" disabled>foto: carregar imagem</button>
           <input type="file" id="ffPhotoInput" accept="image/*" hidden>
         </div>
@@ -257,21 +241,51 @@
 
         <div class="cam-stage" id="ffStage">
           <video id="ffVideo" playsinline muted></video>
-          <canvas id="ffCanvas"></canvas>
+          <canvas id="ffCanvas" aria-label="Prévia da animação facial"></canvas>
+          <canvas id="ffGuide" class="calibration-guide" aria-label="Marcar quatro pontos da boca" hidden></canvas>
           <div class="cam-empty" id="ffEmpty" role="button" tabindex="0">
             <span class="pixel-icon icon-pixel-cam" style="--icon-size:34px" aria-hidden="true"></span>
-            ativar câmera (ao vivo)<br>ou carregar uma foto no modo still acima<br>tracking: 478 landmarks c/ íris (MediaPipe · CDN · local)
+            carregar uma foto com consentimento<br>ou usar sua câmera ao vivo<br>contorno automático ou ajuste manual da boca
           </div>
         </div>
 
         <div class="fg-controls" id="ffReenact">
-          <button class="chip" id="ffRevive" type="button" disabled>▷ reviver (fala + expressões)</button>
-          <button class="chip" id="ffVoice" type="button" disabled>dirigir pela voz (mic)</button>
+          <button class="chip" id="ffRevive" type="button" disabled>▷ reviver</button>
+          <button class="chip" id="ffVoice" type="button" disabled>usar microfone</button>
         </div>
 
+        <div class="fg-controls">
+          <button class="chip" id="ffCalibrate" type="button" disabled>ajustar boca</button>
+          <button class="chip" id="ffCompare" type="button" disabled>ver original</button>
+          <button class="chip" id="ffAudioBtn" type="button" disabled>carregar áudio</button>
+          <input id="ffAudioInput" type="file" accept="audio/*" hidden>
+        </div>
+        <p class="calibration-hint" id="ffCalHint" aria-live="polite">Uma foto frontal, nítida e com boca em repouso oferece melhor resultado.</p>
+        <div class="forge-tuning">
+          <label for="ffIntensity">Amplitude da boca <output id="ffIntensityValue" for="ffIntensity">55%</output>
+            <input id="ffIntensity" type="range" min="0" max="100" value="55">
+          </label>
+          <label for="ffSensitivity">Sensibilidade de voz <output id="ffSensitivityValue" for="ffSensitivity">1.0×</output>
+            <input id="ffSensitivity" type="range" min="50" max="200" value="100">
+          </label>
+          <label class="motion-check"><input id="ffMotion" type="checkbox"> piscar e mover a cabeça</label>
+          <label for="ffClipDuration" class="duration-label">Duração do clipe
+            <select id="ffClipDuration"><option value="5">5 segundos</option><option value="10">10 segundos</option><option value="15">15 segundos</option></select>
+          </label>
+        </div>
+        <div id="ffAudioPlayer" class="forge-audio" hidden>
+          <span id="ffAudioName"></span>
+          <div class="fg-controls"><button class="chip" id="ffAudioPlay" type="button" disabled>▷ tocar áudio</button>
+            <button class="chip" id="ffAudioClear" type="button" disabled>remover áudio</button></div>
+        </div>
+        <div class="forge-metrics">
+          <span id="ffMetrics">aguardando foto ou câmera</span>
+          <label for="ffMouthMeter">boca <meter id="ffMouthMeter" min="0" max="1" value="0"></meter></label>
+          <label for="ffAudioMeter">voz <meter id="ffAudioMeter" min="0" max="1" value="0"></meter></label>
+        </div>
         <div class="fg-controls" id="ffMood">
-          <button class="chip on" data-mood="auto" type="button" disabled>humor: auto</button>
-          <button class="chip" data-mood="neutro" type="button" disabled>neutro</button>
+          <button class="chip" data-mood="auto" type="button" disabled>humor: auto</button>
+          <button class="chip on" data-mood="neutro" type="button" disabled>neutro</button>
           <button class="chip" data-mood="sorriso" type="button" disabled>sorriso</button>
           <button class="chip" data-mood="surpresa" type="button" disabled>surpresa</button>
           <button class="chip" data-mood="serio" type="button" disabled>sério</button>
@@ -279,16 +293,16 @@
 
         <div class="fg-controls" id="ffFx">
           <button class="chip" data-fx="puppet" type="button" disabled>marionete (ao vivo)</button>
-          <button class="chip" data-fx="swap" type="button" disabled>swap / enxerto</button>
+          <button class="chip" data-fx="swap" type="button" disabled>enxerto da própria face</button>
           <button class="chip" data-fx="smooth" type="button" disabled>hipersuavização</button>
           <button class="chip" data-fx="glitch" type="button" disabled>glitch de difusão</button>
         </div>
         <div class="fg-controls">
           <button class="chip" id="ffMask" type="button" disabled>congelar máscara / regerar enxerto</button>
           <button class="chip" id="ffShot" type="button" disabled>capturar quadro</button>
-          <button class="chip" id="ffClip" type="button" disabled>gravar clipe 5 s</button>
+          <button class="chip" id="ffClip" type="button" disabled>gravar clipe</button>
         </div>
-        <div class="fg-readout" id="ffReadout">três modos: câmera ao vivo · foto still (enxerto/glitch) · <b>reviver</b> — a foto fala com lábios e mandíbula em warp suave, pisca, franze, sorri e desvia o olhar. Combine com o driver de voz e o humor. Capture e envie à bancada de detecção.</div>
+        <div class="fg-readout" id="ffReadout">A animação preserva a textura da foto. Comece com amplitude baixa e efeitos desligados; use <b>ajustar boca</b> se necessário. A abertura segue a energia da voz, sem reconhecimento de fonemas. Dentes ausentes na foto não são reconstruídos. Capture e compare no detector.</div>
       </div>
     </div>
 
@@ -311,14 +325,13 @@
     <div class="footer-block">
       <strong>Limites do método</strong><br>
       Heurísticas de arquivo e de sinal não substituem perícia. Ausência de indícios não prova
-      autenticidade; presença de indícios não prova autoria. As bancadas ponderam sinais, não emitem sentenças.
+      autenticidade; presença de indícios não prova autoria. Esta inspeção não contém um classificador treinado de deepfake. C2PA é inspecionado sem validar assinaturas ou cadeia de confiança.
     </div>
     <div class="footer-block">
       <strong>Escopo da bancada ofensiva</strong><br>
-      A FORGE opera apenas sobre sinais capturados ou fornecidos localmente pelo próprio operador
-      (mic/câmera/imagem própria, com confirmação de consentimento) e não processa amostras de
-      terceiros nem composita imagens diferentes. A reencenação usa warping por landmarks —
-      a mecânica que LivePortrait/Wav2Lip automatizam com redes neurais. Os artefatos são corpus de teste.
+      A FORGE opera sobre sinais próprios ou imagens com consentimento expresso
+      fornecidos localmente pelo operador. Todos os artefatos de saída recebem marca d'água de teste educacional. A reencenação deforma pixels da própria foto;
+      não inclui reconstrução neural, clonagem de identidade ou sincronização por fonemas. Os artefatos são corpus de teste.
     </div>
     <div class="footer-block">
       <strong>Privacidade</strong><br>
