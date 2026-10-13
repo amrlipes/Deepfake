@@ -2318,6 +2318,8 @@ const FaceForge = (() => {
   const $reviveBtn = $('#ffRevive'), $voiceBtn = $('#ffVoice');
   const moodBtns = $$('#ffMood .chip');
   const ctx = cvs.getContext('2d');
+  const mainCtx = ctx;                 /* alias: drawMouthInterior sombreia `ctx` com uma camada local */
+  let photoSoft = 1.4;                 /* nível de maciez da foto (ampliação) — a boca sintética é suavizada até aqui */
   const fx = { puppet:false, swap:false, smooth:false, glitch:false };
   let stream = null, running = false, lm = null, fm = null, fmState = 'idle';
   let maskCv = null, rec = null, W = 0, H = 0, seq = 0;
@@ -2519,14 +2521,16 @@ const FaceForge = (() => {
     const skin = mixC(c1, c2, .5);
     const black = [0, 0, 0], white = [255, 255, 255];
     pal = {
-      cavTop:   mixC(lip, black, .74),
-      cavMid:   mixC(lip, black, .84),
-      cavBot:   mixC(lip, black, .70),
-      corner:   mixC(lip, black, .92),
+      cavTop:   mixC(lip, black, .64),
+      cavMid:   mixC(lip, black, .66),
+      cavBot:   mixC(lip, black, .60),
+      corner:   mixC(lip, black, .80),
       tongue:   mixC(lip, black, .28),
       tongueLo: mixC(lip, black, .50),
       tongueDk: mixC(lip, black, .62),
-      teeth:    mixC(skin, [244, 241, 234], .72),
+      teeth:    mixC(skin, [214, 210, 202], .30),
+      teethShade: mixC(skin, black, .55),
+      lip:      lip,
       teethGap: mixC(lip, black, .85),
       teethEdge:mixC(lip, black, .88),
       lipLine:  mixC(lip, black, .80),
@@ -2789,7 +2793,17 @@ const FaceForge = (() => {
     }
   }
 
-  /* ═══ BOCA v6 — a cavidade (dentro da matriz da cabeça) ═══ */
+  /* ═══ BOCA v7 — a cavidade (dentro da matriz da cabeça) ═══
+     A v6 desenhava a cavidade como vetor NÍTIDO (contorno escuro, dentes brancos, linhas de separação)
+     sobre uma foto macia e granulada — lia como adesivo/desenho. Agora:
+     · a cavidade é pintada numa CAMADA LOCAL e suavizada até a maciez da foto
+     · a abertura interna é menor que o vão dos lábios: o lábio (cor da foto) contorna a boca
+     · dentes sem contorno: tom puxado da pele, sombra do lábio superior no topo, corredor bucal escuro
+       nas laterais e queda suave embaixo — sem linhas brancas de separação                           */
+  const mouthCv = document.createElement('canvas');
+  const mouthSm = document.createElement('canvas');
+  const mouthSm2 = document.createElement('canvas');
+
   function drawMouthInterior(g){
     const open = rv.mouth;
     const aIn = clamp01((open - .05) / .09);
@@ -2798,11 +2812,8 @@ const FaceForge = (() => {
     if (drop < 1.5 || !pal) return;
 
     const cx = g.mouth.x;
-    /* BUG corrigido: no bico (width < 0) a cavidade LARGAVA em vez de estreitar */
-    const halfW = Math.max(6, rp.halfW * (1 + rv.width * .16));
-    /* perfil do lábio inferior: arco arredondado (parábola "inchada"), não um V — a boca aberta de verdade
-       tem cantos suaves e o fundo largo; expoente .72 fica entre a parábola e a elipse */
-    const openAt = t => Math.pow(Math.max(0, 1 - t * t), .72) * drop * .92;
+    const halfW = Math.max(6, rp.halfW * .80 * (1 + rv.width * .16));
+    const openAt = t => Math.pow(Math.max(0, 1 - t * t), .55) * drop * .80;   /* expoente menor = cantos arredondados, não em lente */
     const topAt  = x => seamY(x) + 1.0;
 
     const yTopC = topAt(cx);
@@ -2818,125 +2829,152 @@ const FaceForge = (() => {
       botPts.push({ x, y: topAt(x) + openAt(t) + 1.5 });
     }
 
-    /* clip na cavidade */
+    /* camada local (coordenadas da foto, recortada ao redor da boca) */
+    const pad = Math.max(8, rp.box.w * .04);
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const q of topPts.concat(botPts)){
+      if (q.x < minX) minX = q.x; if (q.x > maxX) maxX = q.x;
+      if (q.y < minY) minY = q.y; if (q.y > maxY) maxY = q.y;
+    }
+    const bx = Math.max(0, Math.floor(minX - pad)), by = Math.max(0, Math.floor(minY - pad));
+    const bw = Math.min(W - bx, Math.ceil(maxX - minX + 2 * pad));
+    const bh = Math.min(H - by, Math.ceil(maxY - minY + 2 * pad));
+    if (bw < 4 || bh < 4) return;
+    if (mouthCv.width < bw || mouthCv.height < bh){
+      mouthCv.width = Math.max(mouthCv.width, bw); mouthCv.height = Math.max(mouthCv.height, bh);
+    }
+    const ctx = mouthCv.getContext('2d');       /* sombreia o ctx principal: tudo abaixo desenha na camada */
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.clearRect(0, 0, mouthCv.width, mouthCv.height);
+    ctx.translate(-bx, -by);
+
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(topPts[0].x, topPts[0].y);
+      for (let i = 1; i <= N; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
+      for (let i = N; i >= 0; i--) ctx.lineTo(botPts[i].x, botPts[i].y);
+      ctx.closePath();
+    };
+
+    /* penumbra: sombra suave do lábio sobre a abertura (um aro CLARO aqui virava halo de adesivo) */
+    ctx.save();
+    ctx.globalAlpha = aIn * .22;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = rgbp(pal.cavTop) + '1)';
+    ctx.lineWidth = Math.max(3, rp.box.w * .022);
+    outline(); ctx.stroke();
+    ctx.restore();
+
+    /* cavidade */
     ctx.save();
     ctx.globalAlpha = aIn;
-    ctx.beginPath();
-    ctx.moveTo(topPts[0].x, topPts[0].y);
-    for (let i = 1; i <= N; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
-    for (let i = N; i >= 0; i--) ctx.lineTo(botPts[i].x, botPts[i].y);
-    ctx.closePath();
-    ctx.clip();
+    outline(); ctx.clip();
 
-    /* gradação do interior */
     const gr = ctx.createLinearGradient(0, yTopC, 0, yBotC);
-    gr.addColorStop(0,   rgbp(pal.cavTop) + '0.97)');
-    gr.addColorStop(.30, rgbp(pal.cavMid) + '0.99)');
-    gr.addColorStop(.75, rgbp(pal.cavMid) + '0.98)');
-    gr.addColorStop(1,   rgbp(pal.cavBot) + '0.96)');
+    gr.addColorStop(0,   rgbp(pal.cavTop) + '0.90)');
+    gr.addColorStop(.30, rgbp(pal.cavMid) + '0.92)');
+    gr.addColorStop(.75, rgbp(pal.cavMid) + '0.92)');
+    gr.addColorStop(1,   rgbp(pal.cavBot) + '0.88)');
     ctx.fillStyle = gr;
-    ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
+    ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
 
-    /* escurecimento nos cantos */
     [-1, 1].forEach(sgn => {
       const ccx = cx + sgn * halfW * .82, ccy = (yTopC + yBotC) / 2;
       const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30);
       cg.addColorStop(0, rgbp(pal.corner) + '0.55)');
       cg.addColorStop(1, rgbp(pal.corner) + '0)');
       ctx.fillStyle = cg;
-      ctx.fillRect(cx - halfW - 3, yTopC - 2, halfW * 2 + 6, (yBotC - yTopC) + 4);
+      ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
     });
 
-    /* ═══ DENTES v6 — arco de tamanho NATURAL que segue a boca ═══
-       O arco não escala com a abertura (dentes não crescem quando
-       você abre a boca): altura ~2.2% do rosto, com teto da
-       cavidade. O que anima é o vão escuro ABAIXO do arco — a
-       distância dente→lábio inferior respira com a fala.          */
-    if (open > .16){
+    /* dentes: arco superior de altura natural, sem contorno */
+    if (open > .13){
       const cavH = yBotC - yTopC;
-      const teethNatural = rp.box.h * .026;                   // altura real do arco (~2.2% do rosto)
-      const teethH = Math.min(teethNatural, cavH * .65);      // revelado proporcionalmente
-      if (teethH >= 2.5){
-        const teethA = clamp01((open - .16) / .10);           // fade-in gradual
-        const toothEdge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / .8, 1.4) * .7);
-
-        /* faixa do arco — segue a curva do lábio superior */
+      const teethH = Math.min(rp.box.h * .025, cavH * .58);
+      if (teethH >= 2){
+        const teethA = clamp01((open - .15) / .14) * .62;
+        const tw = .76;
+        const edge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / tw, 2) * .5);
         const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
-        tg.addColorStop(0,   rgbp(pal.teeth) + '0.94)');
-        tg.addColorStop(.62, rgbp(pal.teeth) + '0.82)');
-        tg.addColorStop(1,   rgbp(pal.teeth) + '0.34)');
+        tg.addColorStop(0,   rgbp(pal.teethShade) + '0.90)');   /* sombra do lábio superior */
+        tg.addColorStop(.32, rgbp(pal.teeth) + '0.95)');
+        tg.addColorStop(.80, rgbp(pal.teeth) + '0.78)');
+        tg.addColorStop(1,   rgbp(pal.teethShade) + '0)');      /* queda suave p/ a cavidade */
         ctx.globalAlpha = aIn * teethA;
         ctx.fillStyle = tg;
         ctx.beginPath();
-        ctx.moveTo(cx - halfW * .80, topAt(cx - halfW * .80));
-        for (let i = 0; i <= 12; i++){
-          const t = -.80 + 1.6 * i / 12;
-          ctx.lineTo(cx + t * halfW, topAt(cx + t * halfW));
+        for (let i = 0; i <= 14; i++){
+          const t = -tw + 2 * tw * i / 14;
+          const x = cx + t * halfW, y = topAt(x);
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
         }
-        for (let i = 12; i >= 0; i--){
-          const t = -.80 + 1.6 * i / 12;
-          ctx.lineTo(cx + t * halfW, toothEdge(t));
+        for (let i = 14; i >= 0; i--){
+          const t = -tw + 2 * tw * i / 14;
+          ctx.lineTo(cx + t * halfW, edge(t));
         }
         ctx.closePath();
         ctx.fill();
 
-        /* separações interdentais — o arco lê como dentes individuais */
-        ctx.strokeStyle = rgbp(pal.teethGap) + '0.35)';
-        ctx.lineWidth = Math.max(.8, rp.box.w * .0018);
-        for (let k = 0; k < 5; k++){
-          const t = -.60 + .30 * k;                            // 5 separações: 6 dentes
-          const x = cx + t * halfW;
-          const y0 = topAt(x) + 1;
-          const y1 = toothEdge(t) - Math.max(1, teethH * .12);
-          if (y1 - y0 > 2){
-            ctx.beginPath();
-            ctx.moveTo(x, y0);
-            ctx.lineTo(x + (t < 0 ? -1 : 1) * teethH * .06, y1);
-            ctx.stroke();
-          }
-        }
+        /* corredor bucal: laterais dos dentes mergulham no escuro */
+        const hg = ctx.createLinearGradient(cx - halfW * .86, 0, cx + halfW * .86, 0);
+        hg.addColorStop(0,   rgbp(pal.cavMid) + '0.95)');
+        hg.addColorStop(.26, rgbp(pal.cavMid) + '0)');
+        hg.addColorStop(.74, rgbp(pal.cavMid) + '0)');
+        hg.addColorStop(1,   rgbp(pal.cavMid) + '0.95)');
+        ctx.globalAlpha = aIn * teethA;
+        ctx.fillStyle = hg;
+        ctx.fillRect(cx - halfW, yTopC - 3, halfW * 2, teethH + 6);
 
-        /* sombra definindo a borda inferior do arco */
-        ctx.strokeStyle = rgbp(pal.teethEdge) + '0.55)';
-        ctx.lineWidth = Math.max(1, rp.box.w * .002);
-        ctx.beginPath();
-        for (let i = 0; i <= 12; i++){
-          const t = -.80 + 1.6 * i / 12;
-          const x = cx + t * halfW, y = toothEdge(t);
-          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        /* separações: só um sussurro de sombreamento (a foto é macia; linhas nítidas denunciam) */
+        ctx.globalAlpha = aIn * teethA * .5;
+        ctx.strokeStyle = rgbp(pal.teethGap) + '0.16)';
+        ctx.lineWidth = Math.max(1, rp.box.w * .0022);
+        for (let k = 0; k < 5; k++){
+          const t = -.5 + .25 * k;
+          const x = cx + t * halfW;
+          ctx.beginPath();
+          ctx.moveTo(x, topAt(x) + 1);
+          ctx.lineTo(x, edge(t) - teethH * .15);
+          ctx.stroke();
         }
-        ctx.stroke();
-        ctx.globalAlpha = aIn;                                // restaura p/ língua
+        ctx.globalAlpha = aIn;
       }
     }
 
-    /* LÍNGUA — forma DEFINIDA com sulco central (aberturas grandes) */
-    if (open > .42){
+    /* língua: só em aberturas grandes, sem sulco desenhado */
+    if (open > .5){
       const hgt = yBotC - yTopC;
-      const tcy = yBotC - hgt * .24;
-      const tw = halfW * .58, th = Math.max(3, hgt * .26);
-      const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw);
-      lg.addColorStop(0,   rgbp(pal.tongue) + '0.75)');
-      lg.addColorStop(.55, rgbp(pal.tongueLo) + '0.72)');
+      const tcy = yBotC - hgt * .22;
+      const tw2 = halfW * .56, th = Math.max(3, hgt * .24);
+      const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw2);
+      lg.addColorStop(0,   rgbp(pal.tongue) + '0.36)');
+      lg.addColorStop(.6,  rgbp(pal.tongueLo) + '0.32)');
       lg.addColorStop(1,   rgbp(pal.tongueDk) + '0)');
       ctx.fillStyle = lg;
       ctx.beginPath();
-      ctx.ellipse(cx, tcy, tw, th, 0, 0, TAU);
+      ctx.ellipse(cx, tcy, tw2, th, 0, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = rgbp(pal.tongueDk) + '0.55)';
-      ctx.lineWidth = Math.max(1, rp.box.w * .0025);
-      ctx.beginPath();
-      ctx.moveTo(cx - tw * .5, tcy);
-      ctx.quadraticCurveTo(cx, tcy + th * .35, cx + tw * .5, tcy);
-      ctx.stroke();
     }
-    ctx.restore();  /* unclip + alpha */
 
-    /* linha do lábio superior (borda superior NÍTIDA) */
+    /* pontas da abertura se dissolvem na pele (nos cantos reais a boca não é um recorte com bico) */
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'destination-out';
+    const fe = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+    fe.addColorStop(0,   'rgba(0,0,0,1)');
+    fe.addColorStop(.20, 'rgba(0,0,0,0)');
+    fe.addColorStop(.80, 'rgba(0,0,0,0)');
+    fe.addColorStop(1,   'rgba(0,0,0,1)');
+    ctx.fillStyle = fe;
+    ctx.fillRect(cx - halfW - 3, yTopC - 6, halfW * 2 + 6, (yBotC - yTopC) + 12);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();   /* unclip + alpha */
+
+    /* borda do lábio superior e brilho úmido do inferior — discretos */
     ctx.save();
-    ctx.globalAlpha = aIn * .45;
+    ctx.globalAlpha = aIn * .10;
     ctx.strokeStyle = rgbp(pal.lipLine) + '1)';
-    ctx.lineWidth = Math.max(1.2, rp.box.w * .0035);
+    ctx.lineWidth = Math.max(1.2, rp.box.w * .004);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(topPts[0].x, topPts[0].y);
@@ -2944,11 +2982,10 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* wet-line: brilho da mucosa do lábio inferior */
     ctx.save();
-    ctx.globalAlpha = aIn * .30;
+    ctx.globalAlpha = aIn * .0;
     ctx.strokeStyle = rgbp(pal.wet) + '1)';
-    ctx.lineWidth = Math.max(1, rp.box.w * .0028);
+    ctx.lineWidth = Math.max(1, rp.box.w * .003);
     ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.moveTo(botPts[0].x, botPts[0].y - 1);
@@ -2956,18 +2993,30 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* sombra sob o lábio inferior */
-    const d17 = dispAt(g.lowerLip.x, g.lowerLip.y);
-    ctx.save();
-    ctx.globalAlpha = aIn * .45;
-    const sg = ctx.createRadialGradient(cx, d17.y, 1, cx, d17.y, halfW * .55);
-    sg.addColorStop(0, rgbp(pal.lipShadow) + '0.30)');
-    sg.addColorStop(1, rgbp(pal.lipShadow) + '0)');
-    ctx.fillStyle = sg;
-    ctx.translate(cx, d17.y);
-    ctx.scale(1, .32);
-    ctx.beginPath(); ctx.arc(0, 0, halfW * .55, 0, TAU); ctx.fill();
-    ctx.restore();
+    /* casa a maciez com a da foto: reduções sucessivas pela metade + ampliação (desfoque sem ctx.filter,
+       que o Safari não tem). Foto ampliada ~5× é bem mais macia que 1 px — daí o fator. */
+    const k = Math.max(2.4, photoSoft * 1.7);
+    const tgtW = Math.max(2, Math.round(bw / k)), tgtH = Math.max(2, Math.round(bh / k));
+    const bufs = [mouthSm, mouthSm2];
+    let src = mouthCv, aw = bw, ah = bh, tog = 0;
+    const stepTo = (nw, nh) => {
+      const dst = bufs[tog]; tog ^= 1;
+      if (dst.width < nw || dst.height < nh){
+        dst.width = Math.max(dst.width, nw); dst.height = Math.max(dst.height, nh);
+      }
+      const d = dst.getContext('2d');
+      d.setTransform(1, 0, 0, 1, 0, 0);
+      d.clearRect(0, 0, dst.width, dst.height);
+      d.imageSmoothingEnabled = true; d.imageSmoothingQuality = 'high';
+      d.drawImage(src, 0, 0, aw, ah, 0, 0, nw, nh);
+      src = dst; aw = nw; ah = nh;
+    };
+    while (aw / 2 > tgtW) stepTo(Math.max(tgtW, Math.round(aw / 2)), Math.max(tgtH, Math.round(ah / 2)));
+    stepTo(tgtW, tgtH);
+    mainCtx.save();
+    mainCtx.imageSmoothingEnabled = true; mainCtx.imageSmoothingQuality = 'high';
+    mainCtx.drawImage(src, 0, 0, aw, ah, bx, by, bw, bh);
+    mainCtx.restore();
 
     rp.dCL = dispAt(g.cornerL.x, g.cornerL.y);
     rp.dCR = dispAt(g.cornerR.x, g.cornerR.y);
@@ -3087,6 +3136,8 @@ const FaceForge = (() => {
       const sc = big > cap ? cap / big : (big < floor ? floor / big : 1);
       W = Math.max(2, Math.round(img.naturalWidth * sc));
       H = Math.max(2, Math.round(img.naturalHeight * sc));
+      /* foto ampliada = foto macia: o desenho da boca precisa ficar igualmente macio para não parecer colado */
+      photoSoft = Math.min(5, 1.2 + Math.max(0, sc - 1) * .9);
       photoCv = document.createElement('canvas');
       photoCv.width = W; photoCv.height = H;
       const pc = photoCv.getContext('2d', { willReadFrequently: true });
@@ -4132,7 +4183,7 @@ const App = (() => {
 
   function bootLog(){
     Terminal.clear();
-    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.12');
+    Terminal.section('SYNTH::DETECT — BANCADA FORENSE v6.13');
     Terminal.log('pipeline imagem: estrutura → EXIF → C2PA → ELA + assinaturas de IA', 'plain');
     Terminal.log('pipeline áudio: contêiner → metadados → acústica (STFT/F0) → assinaturas', 'plain');
     Terminal.log('pipeline vídeo: contêiner/pistas → metadados → quadros (ELA) + trilha → assinaturas', 'plain');
