@@ -3606,21 +3606,28 @@ const FaceForge = (() => {
       for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
       const rms = Math.sqrt(s / rv.tbuf.length);
       tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8));
-            rv.analyser.getByteFrequencyData(rv.fbuf);
+
+      /* v8 · VISEMAS POR BANDA — antes: um centróide médio único misturava
+         "i/e" (larga) com "u/o" (bico). Agora duas bandas de formante
+         dirigem a LARGURA de forma independente da abertura (que segue
+         vindo do RMS): agudos fortes abrem os cantos; graves dominantes
+         fecham em bico — e boca escancarada ("a") nunca faz bico */
+      rv.analyser.getByteFrequencyData(rv.fbuf);
       const bins = rv.fbuf.length, nyq = rv.ac.sampleRate / 2;
-      const bE = (f0, f1) => {                 /* energia média de uma banda */
-        let s = 0, n = 0;
+      const bE = (f0, f1) => {                 /* energia média numa banda (0–255) */
+        let s2 = 0, n = 0;
         for (let i = 2; i < bins; i++){
           const f = i * nyq / bins;
-          if (f >= f0 && f < f1){ s += rv.fbuf[i]; n++; }
+          if (f >= f0 && f < f1){ s2 += rv.fbuf[i]; n++; }
         }
-        return n ? s / n : 0;
+        return n ? s2 / n : 0;
       };
       const low = bE(180, 900), hi = bE(1800, 4200), tot = bE(180, 5000);
-      /* "i/e": formante agudo forte → boca LARGA · "u/o": grave dominante → bico */
-      const bright = tot > 8 ? Math.max(0, (hi - low * .55)) / 255 : 0;
-      const wide = Math.max(-.45, Math.min(.85, bright * 1.5));
-      tgtW = rms > .02 ? wide : 0;
+      const ratio = (hi + 6) / (low + 6);
+      let wide = Math.max(-.45, Math.min(.85, (ratio - 1.15) * 1.1));
+      if (wide < 0) wide *= clamp01(1 - tgtM * 1.3);   /* sem bico com a boca aberta */
+      tgtW = (rms > .02 && tot > 8) ? wide : 0;
+
       const d = rms - rv.prevRms;
       rv.prevRms = rms * .65 + rv.prevRms * .35;
       if (d > .018){
