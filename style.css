@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   style.css — SYNTH::DETECT v7.0
+   style.css — SYNTH::DETECT v6.1
    Sumário:
      01. Tokens          06. Dropzone/evidência  10. Veredito
      02. Base            07. Ícones pixel        11. FORGE (ofensiva)
@@ -276,21 +276,3 @@ footer{border-top:1px solid var(--line);padding:40px 0;margin-top:20px}
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
   html{scroll-behavior:auto}
 }
-/* v7 · Calibração e controles da animação fotográfica */
-.calibration-guide{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;z-index:2}
-.calibration-hint{margin-top:10px;color:var(--amber);font:400 10px/1.7 var(--mono)}
-.forge-tuning{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;margin:16px 0;padding:14px;border:1px solid var(--line-2);background:var(--bg-2)}
-.forge-tuning label{font:500 10px/1.7 var(--mono);color:var(--text-2)}
-.forge-tuning output{float:right;color:var(--green)}
-.forge-tuning input[type=range]{display:block;width:100%;margin-top:8px;accent-color:var(--green);cursor:pointer}
-.forge-tuning .motion-check{display:flex;align-items:center;gap:7px}
-.forge-tuning input[type=checkbox]{accent-color:var(--green)}
-.duration-label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.duration-label select{background:var(--bg-1);border:1px solid var(--line-2);color:var(--text);padding:5px;font:400 10px var(--mono);max-width:100%}
-.forge-audio{padding:12px;border:1px solid var(--line-2);margin-top:12px;font:400 10px/1.7 var(--mono);overflow-wrap:anywhere}
-.forge-audio .fg-controls{margin-top:8px}
-.forge-metrics{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px;color:var(--text-2);font:400 9px/1.7 var(--mono)}
-.forge-metrics label{display:flex;gap:5px;align-items:center}
-.forge-metrics meter{width:56px;height:8px;accent-color:var(--green)}
-.chip[aria-pressed=true]{border-color:var(--green);color:var(--green)}
-@media(max-width:460px){.forge-tuning{grid-template-columns:1fr}.forge-panel{padding:18px 14px}.nav{gap:12px;font-size:10px}.header-in{gap:16px}.brand{font-size:12px}}
