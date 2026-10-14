@@ -2986,15 +2986,23 @@ const FaceForge = (() => {
 
   function drawMouthInterior(g){
     const open = rv.mouth;
-    /* v9 · fade de entrada mais largo e gradual — sem "pop" da cavidade */
     const aIn = clamp01((open - .06) / .12);
     if (aIn <= .02){ rp.dCL = null; rp.dCR = null; return; }
     const drop = rp.drop;
     if (drop < 1.5 || !pal) return;
 
+    /* v10 · ABERTURA VISUAL DESACOPLADA DA MANDÍBULA: o drop físico (v8.3)
+       foi calibrado para o movimento da pele — mas o VÃO visível entre os
+       lábios é maior: os lábios em si também se separam. O vão = queda da
+       mandíbula + a separação labial da PRÓPRIA foto, crescendo com a
+       abertura. Fala comum ≈ 5–7% da altura do rosto · vogal ampla ≈ 13% */
+    const lipGap = Math.max(g.box.h * .015, g.lipBot.y - g.lipTop.y);
+    const openPx = Math.min(drop + lipGap * clamp01(rv.mouth * 2), g.box.h * .13);
+
     const cx = g.mouth.x;
-    const halfW = Math.max(6, rp.halfW * .80 * (1 + rv.width * .16));
-    const openAt = t => Math.pow(Math.max(0, 1 - t * t), .55) * drop * .80;
+    /* v10 · a boca estreita de leve ao abrir (arco natural), além de alongar */
+    const halfW = Math.max(6, rp.halfW * .80 * (1 + rv.width * .16) * (1 - rv.mouth * .07));
+    const openAt = t => Math.pow(Math.max(0, 1 - t * t), .55) * openPx;
     const topAt  = x => seamY(x) + 1.0;
 
     const yTopC = topAt(cx);
@@ -3037,7 +3045,7 @@ const FaceForge = (() => {
       ctx.closePath();
     };
 
-    /* v9 · penumbra externa mais discreta (o aro escuro denunciava) */
+    /* penumbra externa */
     ctx.save();
     ctx.globalAlpha = aIn * .15;
     ctx.lineJoin = 'round';
@@ -3059,7 +3067,7 @@ const FaceForge = (() => {
     ctx.fillStyle = gr;
     ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
 
-    /* v9 · luz do palato mais contida — um brilho, não um holofote */
+    /* luz do palato */
     const vy = yTopC + (yBotC - yTopC) * .26;
     const vg = ctx.createRadialGradient(cx, vy, 1, cx, vy, halfW * .52);
     vg.addColorStop(0,   rgbp(pal.vault) + '0.36)');
@@ -3090,7 +3098,7 @@ const FaceForge = (() => {
       ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
     }
 
-    /* dentes superiores — v9: alpha geral menor, gradiente menos contrastado */
+    /* dentes superiores */
     if (open > .13){
       const cavH = yBotC - yTopC;
       const teethH = Math.min(rp.box.h * .025, cavH * .58);
@@ -3142,7 +3150,7 @@ const FaceForge = (() => {
       }
     }
 
-    /* língua articulada — v9: mais integrada ao fundo */
+    /* língua articulada */
     if (open > .45){
       const hgt = yBotC - yTopC;
       const closing = clamp01(-rv.velM * .18);
@@ -3159,7 +3167,7 @@ const FaceForge = (() => {
       ctx.fill();
     }
 
-    /* dentes inferiores — v9: mais discretos (recuam na penumbra) */
+    /* dentes inferiores */
     if (open > .30){
       const cavH2 = yBotC - yTopC;
       const th2 = Math.min(rp.box.h * .020, cavH2 * .42);
@@ -3211,15 +3219,31 @@ const FaceForge = (() => {
     ctx.fillStyle = fe;
     ctx.fillRect(cx - halfW - 3, yTopC - 6, halfW * 2 + 6, (yBotC - yTopC) + 12);
 
-    /* v9 · A BASE DERRETE NO LÁBIO: a costura dura cavidade→lábio era a
-       borda que mais denunciava a pintura — agora um fade vertical sutil */
+    /* base derrete no lábio — v10: um pouco mais forte (a pintura desce mais) */
     const bH = (yBotC - yTopC) * .3;
     const bfade = ctx.createLinearGradient(0, yBotC - bH, 0, yBotC);
     bfade.addColorStop(0, 'rgba(0,0,0,0)');
-    bfade.addColorStop(1, 'rgba(0,0,0,.35)');
+    bfade.addColorStop(1, 'rgba(0,0,0,.42)');
     ctx.fillStyle = bfade;
     ctx.fillRect(cx - halfW - 3, yBotC - bH, halfW * 2 + 6, bH + 2);
     ctx.globalCompositeOperation = 'source-over';
+
+    /* v10 · WET-LINE (lábio interno molhado): ao se desgrudarem, os lábios
+       expõem a face interna úmida do lábio inferior — faixa clara na base
+       da abertura. Era o detalhe morto (alpha 0) desde a v6; é um dos
+       maiores marcadores de boca real em foto */
+    const wlH = Math.max(2, (yBotC - yTopC) * .16);
+    const wlA = aIn * clamp01((open - .22) / .28);
+    if (wlA > .01){
+      const wg = ctx.createLinearGradient(0, yBotC - wlH * 2.2, 0, yBotC);
+      wg.addColorStop(0,  rgbp(pal.wet) + '0)');
+      wg.addColorStop(.6, rgbp(pal.wet) + '0.14)');
+      wg.addColorStop(1,  rgbp(pal.wet) + '0.22)');
+      ctx.globalAlpha = wlA;
+      ctx.fillStyle = wg;
+      ctx.fillRect(cx - halfW * .92, yBotC - wlH * 2.2, halfW * 1.84, wlH * 2.2);
+      ctx.globalAlpha = aIn;
+    }
     ctx.restore();   /* unclip + alpha */
 
     /* borda do lábio superior — discreta */
@@ -3245,8 +3269,7 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* v9 · suavização reequilibrada: menos blur — a boca pintada casa
-       com a nitidez da foto em vez de virar uma mancha "de vidro" */
+    /* suavização para casar com a foto */
     const k = Math.max(2.1, photoSoft * 1.5);
     const tgtW = Math.max(2, Math.round(bw / k)), tgtH = Math.max(2, Math.round(bh / k));
     const bufs = [mouthSm, mouthSm2];
