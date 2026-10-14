@@ -2986,7 +2986,8 @@ const FaceForge = (() => {
 
   function drawMouthInterior(g){
     const open = rv.mouth;
-    const aIn = clamp01((open - .05) / .09);
+    /* v9 · fade de entrada mais largo e gradual — sem "pop" da cavidade */
+    const aIn = clamp01((open - .06) / .12);
     if (aIn <= .02){ rp.dCL = null; rp.dCR = null; return; }
     const drop = rp.drop;
     if (drop < 1.5 || !pal) return;
@@ -3009,7 +3010,6 @@ const FaceForge = (() => {
       botPts.push({ x, y: topAt(x) + openAt(t) + 1.5 });
     }
 
-    /* camada local (coordenadas da foto, recortada ao redor da boca) */
     const pad = Math.max(8, rp.box.w * .04);
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     for (const q of topPts.concat(botPts)){
@@ -3023,7 +3023,7 @@ const FaceForge = (() => {
     if (mouthCv.width < bw || mouthCv.height < bh){
       mouthCv.width = Math.max(mouthCv.width, bw); mouthCv.height = Math.max(mouthCv.height, bh);
     }
-    const ctx = mouthCv.getContext('2d');       /* sombreia o ctx principal: tudo abaixo desenha na camada */
+    const ctx = mouthCv.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, mouthCv.width, mouthCv.height);
@@ -3037,12 +3037,12 @@ const FaceForge = (() => {
       ctx.closePath();
     };
 
-    /* penumbra: sombra suave do lábio sobre a abertura */
+    /* v9 · penumbra externa mais discreta (o aro escuro denunciava) */
     ctx.save();
-    ctx.globalAlpha = aIn * .22;
+    ctx.globalAlpha = aIn * .15;
     ctx.lineJoin = 'round';
     ctx.strokeStyle = rgbp(pal.cavTop) + '1)';
-    ctx.lineWidth = Math.max(3, rp.box.w * .022);
+    ctx.lineWidth = Math.max(3, rp.box.w * .018);
     outline(); ctx.stroke();
     ctx.restore();
 
@@ -3051,7 +3051,6 @@ const FaceForge = (() => {
     ctx.globalAlpha = aIn;
     outline(); ctx.clip();
 
-    /* v8.2 · gradiente com PROFUNDIDADE: teto mais claro, fundo escuro */
     const gr = ctx.createLinearGradient(0, yTopC, 0, yBotC);
     gr.addColorStop(0,   rgbp(pal.cavTop) + '0.82)');
     gr.addColorStop(.30, rgbp(pal.cavMid) + '0.88)');
@@ -3060,29 +3059,27 @@ const FaceForge = (() => {
     ctx.fillStyle = gr;
     ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
 
-    /* v8.2 · LUZ DO PALATO: o teto da boca, logo atrás dos dentes
-       superiores, reflete a luz que entra — é o que impede o interior
-       de ler como um recorte preto */
+    /* v9 · luz do palato mais contida — um brilho, não um holofote */
     const vy = yTopC + (yBotC - yTopC) * .26;
-    const vg = ctx.createRadialGradient(cx, vy, 1, cx, vy, halfW * .58);
-    vg.addColorStop(0,   rgbp(pal.vault) + '0.50)');
-    vg.addColorStop(.55, rgbp(pal.vault) + '0.22)');
+    const vg = ctx.createRadialGradient(cx, vy, 1, cx, vy, halfW * .52);
+    vg.addColorStop(0,   rgbp(pal.vault) + '0.36)');
+    vg.addColorStop(.55, rgbp(pal.vault) + '0.15)');
     vg.addColorStop(1,   rgbp(pal.vault) + '0)');
     ctx.fillStyle = vg;
     ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
 
-    /* corredores bucais (laterais) — mais suaves que no v8.1 */
+    /* corredores bucais */
     [-1, 1].forEach(sgn => {
       const ccx = cx + sgn * halfW * .82, ccy = (yTopC + yBotC) / 2;
       const cg = ctx.createRadialGradient(ccx, ccy, 1, ccx, ccy, halfW * .30);
-      cg.addColorStop(0, rgbp(pal.corner) + '0.40)');
+      cg.addColorStop(0, rgbp(pal.corner) + '0.34)');
       cg.addColorStop(1, rgbp(pal.corner) + '0)');
       ctx.fillStyle = cg;
       ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
     });
 
-    /* v8.2 · garganta: bem mais sutil (era o dobro) e mais baixa */
-    const throatA = clamp01((open - .25) / .5) * .32;
+    /* garganta */
+    const throatA = clamp01((open - .25) / .5) * .28;
     if (throatA > .01){
       const gy = yTopC + (yBotC - yTopC) * .85;
       const tg2 = ctx.createRadialGradient(cx, gy, 1, cx, gy, halfW * .6);
@@ -3093,19 +3090,19 @@ const FaceForge = (() => {
       ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
     }
 
-    /* dentes: arco superior de altura natural, sem contorno */
+    /* dentes superiores — v9: alpha geral menor, gradiente menos contrastado */
     if (open > .13){
       const cavH = yBotC - yTopC;
       const teethH = Math.min(rp.box.h * .025, cavH * .58);
       if (teethH >= 2){
-        const teethA = clamp01((open - .15) / .14) * .62;
+        const teethA = clamp01((open - .15) / .14) * .54;
         const tw = .76;
         const edge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / tw, 2) * .5);
         const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
-        tg.addColorStop(0,   rgbp(pal.teethShade) + '0.90)');   /* sombra do lábio superior */
-        tg.addColorStop(.32, rgbp(pal.teeth) + '0.95)');
-        tg.addColorStop(.80, rgbp(pal.teeth) + '0.78)');
-        tg.addColorStop(1,   rgbp(pal.teethShade) + '0)');      /* queda suave p/ a cavidade */
+        tg.addColorStop(0,   rgbp(pal.teethShade) + '0.82)');
+        tg.addColorStop(.32, rgbp(pal.teeth) + '0.88)');
+        tg.addColorStop(.80, rgbp(pal.teeth) + '0.72)');
+        tg.addColorStop(1,   rgbp(pal.teethShade) + '0)');
         ctx.globalAlpha = aIn * teethA;
         ctx.fillStyle = tg;
         ctx.beginPath();
@@ -3121,17 +3118,15 @@ const FaceForge = (() => {
         ctx.closePath();
         ctx.fill();
 
-        /* corredor bucal: laterais dos dentes mergulham no escuro */
         const hg = ctx.createLinearGradient(cx - halfW * .86, 0, cx + halfW * .86, 0);
-        hg.addColorStop(0,   rgbp(pal.cavMid) + '0.95)');
+        hg.addColorStop(0,   rgbp(pal.cavMid) + '0.90)');
         hg.addColorStop(.26, rgbp(pal.cavMid) + '0)');
         hg.addColorStop(.74, rgbp(pal.cavMid) + '0)');
-        hg.addColorStop(1,   rgbp(pal.cavMid) + '0.95)');
+        hg.addColorStop(1,   rgbp(pal.cavMid) + '0.90)');
         ctx.globalAlpha = aIn * teethA;
         ctx.fillStyle = hg;
         ctx.fillRect(cx - halfW, yTopC - 3, halfW * 2, teethH + 6);
 
-        /* separações: só um sussurro de sombreamento */
         ctx.globalAlpha = aIn * teethA * .5;
         ctx.strokeStyle = rgbp(pal.teethGap) + '0.16)';
         ctx.lineWidth = Math.max(1, rp.box.w * .0022);
@@ -3147,7 +3142,7 @@ const FaceForge = (() => {
       }
     }
 
-    /* v8 · língua articulada */
+    /* língua articulada — v9: mais integrada ao fundo */
     if (open > .45){
       const hgt = yBotC - yTopC;
       const closing = clamp01(-rv.velM * .18);
@@ -3155,8 +3150,8 @@ const FaceForge = (() => {
       const tcy = yBotC - hgt * (.22 + closing * .38) + wob;
       const tw2 = halfW * .56 * (1 + rv.width * .1), th = Math.max(3, hgt * .24);
       const lg = ctx.createRadialGradient(cx, tcy - th * .2, 1, cx, tcy, tw2);
-      lg.addColorStop(0,   rgbp(pal.tongue) + '0.36)');
-      lg.addColorStop(.6,  rgbp(pal.tongueLo) + '0.32)');
+      lg.addColorStop(0,   rgbp(pal.tongue) + '0.30)');
+      lg.addColorStop(.6,  rgbp(pal.tongueLo) + '0.26)');
       lg.addColorStop(1,   rgbp(pal.tongueDk) + '0)');
       ctx.fillStyle = lg;
       ctx.beginPath();
@@ -3164,18 +3159,18 @@ const FaceForge = (() => {
       ctx.fill();
     }
 
-    /* v8 · dentes inferiores */
+    /* dentes inferiores — v9: mais discretos (recuam na penumbra) */
     if (open > .30){
       const cavH2 = yBotC - yTopC;
       const th2 = Math.min(rp.box.h * .020, cavH2 * .42);
       if (th2 >= 2){
-        const a2 = clamp01((open - .30) / .22) * .42;
+        const a2 = clamp01((open - .30) / .22) * .32;
         const tw3 = .58;
         const bot = t => topAt(cx + t * halfW) + openAt(t) + 1.5;
         const topE = t => bot(t) - th2 * (1 - Math.pow(Math.abs(t) / tw3, 2) * .45);
         const g2 = ctx.createLinearGradient(0, yBotC - th2, 0, yBotC);
-        g2.addColorStop(0,  rgbp(pal.teeth) + '0.60)');
-        g2.addColorStop(.6, rgbp(pal.teeth) + '0.45)');
+        g2.addColorStop(0,  rgbp(pal.teeth) + '0.50)');
+        g2.addColorStop(.6, rgbp(pal.teeth) + '0.36)');
         g2.addColorStop(1,  rgbp(pal.teethShade) + '0)');
         ctx.globalAlpha = aIn * a2;
         ctx.fillStyle = g2;
@@ -3205,7 +3200,7 @@ const FaceForge = (() => {
       }
     }
 
-    /* pontas da abertura se dissolvem na pele */
+    /* pontas se dissolvem na pele */
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'destination-out';
     const fe = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
@@ -3215,6 +3210,15 @@ const FaceForge = (() => {
     fe.addColorStop(1,   'rgba(0,0,0,1)');
     ctx.fillStyle = fe;
     ctx.fillRect(cx - halfW - 3, yTopC - 6, halfW * 2 + 6, (yBotC - yTopC) + 12);
+
+    /* v9 · A BASE DERRETE NO LÁBIO: a costura dura cavidade→lábio era a
+       borda que mais denunciava a pintura — agora um fade vertical sutil */
+    const bH = (yBotC - yTopC) * .3;
+    const bfade = ctx.createLinearGradient(0, yBotC - bH, 0, yBotC);
+    bfade.addColorStop(0, 'rgba(0,0,0,0)');
+    bfade.addColorStop(1, 'rgba(0,0,0,.35)');
+    ctx.fillStyle = bfade;
+    ctx.fillRect(cx - halfW - 3, yBotC - bH, halfW * 2 + 6, bH + 2);
     ctx.globalCompositeOperation = 'source-over';
     ctx.restore();   /* unclip + alpha */
 
@@ -3241,8 +3245,9 @@ const FaceForge = (() => {
     ctx.stroke();
     ctx.restore();
 
-    /* suavização para casar com a maciez da foto */
-    const k = Math.max(2.4, photoSoft * 1.7);
+    /* v9 · suavização reequilibrada: menos blur — a boca pintada casa
+       com a nitidez da foto em vez de virar uma mancha "de vidro" */
+    const k = Math.max(2.1, photoSoft * 1.5);
     const tgtW = Math.max(2, Math.round(bw / k)), tgtH = Math.max(2, Math.round(bh / k));
     const bufs = [mouthSm, mouthSm2];
     let src = mouthCv, aw = bw, ah = bh, tog = 0;
@@ -3541,16 +3546,18 @@ const FaceForge = (() => {
       let s = 0;
       for (let i = 0; i < rv.tbuf.length; i++){ const v = (rv.tbuf[i] - 128) / 128; s += v * v; }
       const rms = Math.sqrt(s / rv.tbuf.length);
-      tgtM = Math.min(1, Math.pow(Math.max(0, (rms - .012) * 4.0), .8));
 
-      /* v8 · VISEMAS POR BANDA — antes: um centróide médio único misturava
-         "i/e" (larga) com "u/o" (bico). Agora duas bandas de formante
-         dirigem a LARGURA de forma independente da abertura (que segue
-         vindo do RMS): agudos fortes abrem os cantos; graves dominantes
-         fecham em bico — e boca escancarada ("a") nunca faz bico */
+      /* v9 · ENVELOPE ASSIMÉTRICO: o RMS de ~11 ms treme quadro a quadro e
+         a boca "estalava" atrás dele. Agora: sobe rápido (a voz atacou),
+         desce devagar (a boca relaxa) — a envelope de um falante real */
+      const env = rv.envRms || 0;
+      rv.envRms = rms > env ? env * .45 + rms * .55 : env * .74 + rms * .26;
+      tgtM = Math.min(1, Math.pow(Math.max(0, (rv.envRms - .012) * 4.0), .8));
+
+      /* visemas por banda (v8), agora com alvo suavizado */
       rv.analyser.getByteFrequencyData(rv.fbuf);
       const bins = rv.fbuf.length, nyq = rv.ac.sampleRate / 2;
-      const bE = (f0, f1) => {                 /* energia média numa banda (0–255) */
+      const bE = (f0, f1) => {
         let s2 = 0, n = 0;
         for (let i = 2; i < bins; i++){
           const f = i * nyq / bins;
@@ -3561,8 +3568,9 @@ const FaceForge = (() => {
       const low = bE(180, 900), hi = bE(1800, 4200), tot = bE(180, 5000);
       const ratio = (hi + 6) / (low + 6);
       let wide = Math.max(-.45, Math.min(.85, (ratio - 1.15) * 1.1));
-      if (wide < 0) wide *= clamp01(1 - tgtM * 1.3);   /* sem bico com a boca aberta */
-      tgtW = (rms > .02 && tot > 8) ? wide : 0;
+      if (wide < 0) wide *= clamp01(1 - tgtM * 1.3);
+      rv.envWide = (rv.envWide || 0) * .6 + wide * .4;
+      tgtW = (rv.envRms > .02 && tot > 8) ? rv.envWide : 0;
 
       const d = rms - rv.prevRms;
       rv.prevRms = rms * .65 + rv.prevRms * .35;
@@ -3606,9 +3614,12 @@ const FaceForge = (() => {
         }
       }
     }
+    /* v9 · MOLA CRITICAMENTE AMORTECIDA: as constantes antigas (620/24)
+       davam ζ≈0.48 — overshoot: a boca punchava ALÉM do alvo a cada vogal
+       e voltava. ζ≈1 agora: chega ao alvo direto, sem ultrapassar */
     const opening = tgtM > rv.mouth;
-    let v = rv.velM + (tgtM - rv.mouth) * (opening ? 620 : 430) * dt;
-    v *= Math.exp(-(opening ? 24 : 27) * dt);
+    let v = rv.velM + (tgtM - rv.mouth) * (opening ? 520 : 380) * dt;
+    v *= Math.exp(-(opening ? 46 : 40) * dt);
     rv.velM = v; rv.mouth = Math.min(1, Math.max(.02, rv.mouth + v * dt));
     v = rv.velW + (tgtW - rv.width) * 150 * dt; v *= Math.exp(-17 * dt);
     rv.velW = v; rv.width += v * dt;
