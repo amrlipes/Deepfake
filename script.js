@@ -1887,11 +1887,11 @@ const ForensicCore = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   FACEAUDIT — auditoria facial da bancada DEFENSIVA
-   Reusa o mesmo MediaPipe FaceMesh da bancada ofensiva para auditar
-   quadros do vídeo: piscadas (EAR), micro-flutuação ocular e
-   variação labial. Simetria do projeto: quem dirige a face sintética
-   é quem audita a supostamente real.
+   FACEAUDIT v2.2 — auditoria facial da bancada DEFENSIVA
+   Piscadas (EAR), micro-flutuação ocular, variação labial e a CAIXA
+   FACIAL média (0–1) — o detector de fundo congelado a usa para
+   excluir a face da medição: a face se move; o resto do quadro é
+   que denuncia a foto animada (sem ruído de sensor).
 ════════════════════════════════════════════════════════════════ */
 const FaceAudit = (() => {
   let fm = null, state = 'idle', lastLm = null;
@@ -1918,7 +1918,6 @@ const FaceAudit = (() => {
     } catch { state = 'fail'; return false; }
   }
 
-  /* EAR (abertura palpebral) e boca (13/14 sobre 61/291), normalizados */
   function frameMetrics(lm, w, h){
     const P = i => ({ x: lm[i].x * w, y: lm[i].y * h });
     const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -1932,20 +1931,24 @@ const FaceAudit = (() => {
     if (!frames || frames.length < 4) return { ok: false, why: 'janela insuficiente' };
     if (!(await ensureMesh())) return { ok: false, why: 'MediaPipe indisponível (CDN?)' };
     const samples = [];
+    let bx0 = 1, by0 = 1, bx1 = 0, by1 = 0;
     for (const f of frames){
       lastLm = null;
       try { await fm.send({ image: f.cv }); } catch { /* pula quadro */ }
       if (lastLm){
         const m = frameMetrics(lastLm, f.cv.width, f.cv.height);
         samples.push({ t: f.t, ear: m.ear, mouth: m.mouth });
+        for (const q of lastLm){
+          if (q.x < bx0) bx0 = q.x; if (q.x > bx1) bx1 = q.x;
+          if (q.y < by0) by0 = q.y; if (q.y > by1) by1 = q.y;
+        }
       }
       await sleep(0);
     }
     if (samples.length < 4) return { ok: false, why: 'rosto não localizado nos quadros' };
 
-    /* normalização por janela (remove calibração do sujeito/distância) */
     let blinks = 0, earsN = [], mouths = [], tCovered = 0;
-    const GAP = .6, MIN_B = 4;                    /* dt > 0.6 s abre nova janela */
+    const GAP = .6, MIN_B = 4;
     let cur = [];
     const flush = () => {
       if (cur.length >= MIN_B){
@@ -1957,11 +1960,11 @@ const FaceAudit = (() => {
           const eN = s.ear / eMed;
           earsN.push(eN);
           mouths.push(s.mouth / mMed);
-          if (eN < .72) inDip = true;             /* mergulho palpebral */
-          else if (inDip && eN > .88){ blinks++; inDip = false; }  /* e recuperação */
+          if (eN < .72) inDip = true;
+          else if (inDip && eN > .88){ blinks++; inDip = false; }
           else if (eN > .82) inDip = false;
         }
-        tCovered += (cur[cur.length - 1].t - cur[0].t);            /* cobertura SOMADA */
+        tCovered += (cur[cur.length - 1].t - cur[0].t);
       }
       cur = [];
     };
@@ -1976,19 +1979,21 @@ const FaceAudit = (() => {
       const m = arr.reduce((a, v) => a + v, 0) / arr.length;
       return Math.sqrt(arr.reduce((a, v) => a + (v - m) * (v - m), 0) / arr.length);
     };
-    const quiet = earsN.filter(v => v > .8);      /* jitter exclui piscadas */
+    const quiet = earsN.filter(v => v > .8);
     const earJitter = dev(quiet);
     const mouthJitter = dev(mouths);
+    const box = { x0: bx0, y0: by0, x1: bx1, y1: by1 };
     emit && emit('auditoria facial: ' + samples.length + ' quadros · ' + tCovered.toFixed(1) +
       ' s de cobertura · piscadas ' + blinks + ' · micro-flutuação ocular ' + earJitter.toFixed(3) +
       ' · variação labial ' + mouthJitter.toFixed(3), 'plain');
-    return { ok: true, frames: samples.length, blinks, earJitter, mouthJitter, tCovered };
+    return { ok: true, frames: samples.length, blinks, earJitter, mouthJitter, tCovered, box };
   }
   return { audit };
 })();
 
 /* ═══════════════════════════════════════════════════════════════
-   VIDEOLAB — extração de quadros + ELA (camada de UI/DOM)
+   VIDEOLAB v2.2 — extração de quadros + ELA + métricas do LOOP
+   (marca d'água FORGE + fundo congelado fora da caixa facial)
 ════════════════════════════════════════════════════════════════ */
 const VideoLab = (() => {
   const once = (el, ev, ms) => new Promise((res, rej) => {
@@ -2061,7 +2066,7 @@ const VideoLab = (() => {
       }
       bar.end();
 
-      /* janelas contíguas (bursts) para auditoria facial + métricas de loop */
+      /* janelas contíguas (bursts) */
       const burstFrames = [];
       const NB = 3, LEN = 10, STEP = 1 / 15;
       const bw2 = 256, bh2 = Math.max(2, Math.round(256 * vh / vw));
@@ -2084,56 +2089,29 @@ const VideoLab = (() => {
       }
       bbar.end();
 
-      /* ── v2.1 · LOOP SINTETIZAR→DETECTAR: caça ao artefato da própria FORGE ──
-         (a) MARCA D'ÁGUA: todo quadro gerado pela FORGE sai carimbado com
-             "SINTÉTICO · SYNTH::DETECT FORGE" (coral #ff5f56, canto inferior
-             esquerdo). O detector LÊ a própria marca — a lógica do C2PA
-             aplicada dentro do projeto: o gerador declara, o detector lê */
-      let wmHits = 0;
+      /* marca d'água da FORGE (coral #ff5f56, canto inferior esquerdo) */
+      let wmHits = 0, wmBest = 0;
       for (const f of burstFrames){
         const cw = f.cv.width, chh = f.cv.height;
-        const rx = 0, ry = Math.floor(chh * .82);
-        const rw = Math.floor(cw * .5), rh = chh - ry;
+        const rx = 0, ry = Math.floor(chh * .78);
+        const rw = Math.floor(cw * .70), rh = chh - ry;
         if (rw < 8 || rh < 4) continue;
         const d = f.cv.getContext('2d').getImageData(rx, ry, rw, rh).data;
         let coral = 0, n = 0;
         for (let i = 0; i < d.length; i += 4){
           const R = d[i], G = d[i + 1], B = d[i + 2];
-          /* coral da marca: R alto, G médio (~95), B≈G — diferencia de
-             vermelho puro (G≈0), pele (G>130) e lábios em posição errada */
-          if (R > 170 && G > 40 && G < 130 && B < 130 && (R - G) > 50 && Math.abs(G - B) < 40) coral++;
+          if (R > 160 && G > 30 && G < 135 && B < 135 && (R - G) > 70 && Math.abs(G - B) < 45) coral++;
           n++;
         }
-        if (n && coral / n > .004) wmHits++;
+        const dens = n ? coral / n : 0;
+        if (dens > wmBest) wmBest = dens;
+        if (dens > .003) wmHits++;
       }
       const wm = { hits: wmHits, scanned: burstFrames.length,
-                   found: burstFrames.length >= 6 && wmHits >= burstFrames.length * .85 };
+                   found: burstFrames.length >= 6 && wmHits >= burstFrames.length * .7 };
       emit && emit((wm.found ? '◆ MARCA' : 'marca') + " d'água SINTÉTICO (FORGE): " + wmHits + '/' +
-                   burstFrames.length + ' quadros', wm.found ? 'err' : 'plain');
-
-      /* (b) FUNDO CONGELADO: câmera real tem ruído de sensor — em quadros
-             contíguos o quadro INTEIRO varia um pouco. Animação de foto
-             (FORGE, SadTalker, LivePortrait) move só a face: o fundo fica
-             pixel-a-pixel idêntico. Sem ruído temporal = sem sensor */
-      let movedSum = 0, bgPairs = 0;
-      for (let i = 1; i < burstFrames.length; i++){
-        const A = burstFrames[i - 1], B2 = burstFrames[i];
-        if (B2.t - A.t > .25) continue;
-        const w3 = A.cv.width, h3 = A.cv.height;
-        const da = A.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
-        const db = B2.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
-        let moved = 0, n = 0;
-        for (let p = 0; p < da.length; p += 4){
-          const d = Math.abs(da[p] - db[p]) + Math.abs(da[p+1] - db[p+1]) + Math.abs(da[p+2] - db[p+2]);
-          if (d > 6) moved++;
-          n++;
-        }
-        if (n){ movedSum += moved / n; bgPairs++; }
-      }
-      const bg = { pairs: bgPairs, fracMove: bgPairs ? movedSum / bgPairs : null };
-      if (bg.fracMove !== null)
-        emit && emit('variação temporal entre quadros contíguos: ' + (bg.fracMove * 100).toFixed(1) +
-                     '% dos pixels (' + bgPairs + ' pares)' + (bg.fracMove < .12 ? ' — fundo congelado' : ''), bg.fracMove < .12 ? 'warn' : 'plain');
+                   burstFrames.length + ' quadros' + (wm.found ? '' : ' (melhor densidade ' + (wmBest * 100).toFixed(2) + '%)'),
+                   wm.found ? 'err' : 'plain');
 
       const ebar = progressBar('ELA: recomprimindo quadros em JPEG e medindo resíduos');
       for (let i = 0; i < frames.length; i++){
@@ -2157,13 +2135,49 @@ const VideoLab = (() => {
       const am = acts.reduce((x, y) => x + y, 0) / (acts.length || 1);
       const acv = Math.sqrt(acts.reduce((x, y) => x + (y - am) * (y - am), 0) / (acts.length || 1)) / (am || 1);
 
-      /* auditoria facial (piscadas / olho morto / lábios × trilha) */
+      /* auditoria facial */
       let face = { ok: false, why: 'não executada' };
       if (burstFrames.length){
         try { face = await FaceAudit.audit(burstFrames, emit); }
         catch (e){ face = { ok: false, why: (e && e.message) || 'erro' }; }
       }
       if (!face.ok) emit && emit('auditoria facial indisponível — ' + face.why, 'warn');
+
+      /* fundo congelado FORA da caixa facial */
+      let movedSum = 0, bgPairs = 0;
+      const fb = face.ok && face.box ? face.box : null;
+      for (let i = 1; i < burstFrames.length; i++){
+        const A = burstFrames[i - 1], B2 = burstFrames[i];
+        if (B2.t - A.t > .25) continue;
+        const w3 = A.cv.width, h3 = A.cv.height;
+        const da = A.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
+        const db = B2.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
+        let ex0 = -1, ex1 = 2, ey0 = -1, ey1 = 2;
+        if (fb){
+          const fw = fb.x1 - fb.x0, fh = fb.y1 - fb.y0;
+          ex0 = fb.x0 - fw * .30; ex1 = fb.x1 + fw * .30;
+          ey0 = fb.y0 - fh * .50; ey1 = fb.y1 + fh * .25;
+        }
+        let moved = 0, n = 0;
+        for (let y = 0; y < h3; y++){
+          const ny = y / h3;
+          for (let x = 0; x < w3; x++){
+            const nx = x / w3;
+            if (fb && nx > ex0 && nx < ex1 && ny > ey0 && ny < ey1) continue;
+            const p = (y * w3 + x) * 4;
+            const d = Math.abs(da[p] - db[p]) + Math.abs(da[p+1] - db[p+1]) + Math.abs(da[p+2] - db[p+2]);
+            if (d > 6) moved++;
+            n++;
+          }
+        }
+        if (n > 300){ movedSum += moved / n; bgPairs++; }
+      }
+      const bg = { pairs: bgPairs, fracMove: bgPairs ? movedSum / bgPairs : null };
+      if (bg.fracMove !== null)
+        emit && emit('variação temporal FORA da face: ' + (bg.fracMove * 100).toFixed(1) +
+                     '% dos pixels (' + bgPairs + ' pares)' + (bg.fracMove < .07 ? ' — FUNDO CONGELADO' : ''),
+                     bg.fracMove < .07 ? 'warn' : 'plain');
+
       cleanup();
       return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv, face, wm, bg };
     } catch (e){
@@ -2173,6 +2187,7 @@ const VideoLab = (() => {
   }
   return { extract };
 })();
+
 
 /* ═══════════════════════════════════════════════════════════════
    PIXELLAB — ELA em grade p/ imagens estáticas (camada de UI/DOM)
