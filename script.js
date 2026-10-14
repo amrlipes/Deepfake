@@ -2991,16 +2991,14 @@ const FaceForge = (() => {
     const drop = rp.drop;
     if (drop < 1.5 || !pal) return;
 
-    /* v10 · ABERTURA VISUAL DESACOPLADA DA MANDÍBULA: o drop físico (v8.3)
-       foi calibrado para o movimento da pele — mas o VÃO visível entre os
-       lábios é maior: os lábios em si também se separam. O vão = queda da
-       mandíbula + a separação labial da PRÓPRIA foto, crescendo com a
-       abertura. Fala comum ≈ 5–7% da altura do rosto · vogal ampla ≈ 13% */
+    /* v11 · O VÃO RESPEITA O LÁBIO DA FOTO: o teto agora é a borda interna
+       do lábio inferior DESCIDA pelo warp (drop·0.95 + lipGap·0.8) — a
+       pintura termina ANTES do lábio real, que fica 100% íntegro. O borrão
+       da v10 vinha da tinta cruzando essa borda */
     const lipGap = Math.max(g.box.h * .015, g.lipBot.y - g.lipTop.y);
-    const openPx = Math.min(drop + lipGap * clamp01(rv.mouth * 2), g.box.h * .13);
+    const openPx = Math.min(drop * .95 + lipGap * .8, g.box.h * .125);
 
     const cx = g.mouth.x;
-    /* v10 · a boca estreita de leve ao abrir (arco natural), além de alongar */
     const halfW = Math.max(6, rp.halfW * .80 * (1 + rv.width * .16) * (1 - rv.mouth * .07));
     const openAt = t => Math.pow(Math.max(0, 1 - t * t), .55) * openPx;
     const topAt  = x => seamY(x) + 1.0;
@@ -3045,13 +3043,18 @@ const FaceForge = (() => {
       ctx.closePath();
     };
 
-    /* penumbra externa */
+    /* v11 · PENUMBRA SÓ NO ARCO SUPERIOR: a sombra real é o lábio de cima
+       projetando sobre o vão. Contornar a base (v10) escurecia o lábio
+       inferior por baixo — sombra que não existe */
     ctx.save();
-    ctx.globalAlpha = aIn * .15;
-    ctx.lineJoin = 'round';
+    ctx.globalAlpha = aIn * .16;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = rgbp(pal.cavTop) + '1)';
-    ctx.lineWidth = Math.max(3, rp.box.w * .018);
-    outline(); ctx.stroke();
+    ctx.lineWidth = Math.max(3, rp.box.w * .016);
+    ctx.beginPath();
+    ctx.moveTo(topPts[0].x, topPts[0].y);
+    for (let i = 1; i <= N; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
+    ctx.stroke();
     ctx.restore();
 
     /* cavidade */
@@ -3098,12 +3101,14 @@ const FaceForge = (() => {
       ctx.fillRect(cx - halfW - 3, yTopC - 3, halfW * 2 + 6, (yBotC - yTopC) + 6);
     }
 
-    /* dentes superiores */
-    if (open > .13){
+    /* v11 · DENTES SUPERIORES "CONTROLADOS": presentes e discretos já na
+       fala comum (como um ser humano normal falando), nunca gritando.
+       Sobe de .12→.24 com teto .60 (v10: .15→.29 com teto .54) */
+    if (open > .12){
       const cavH = yBotC - yTopC;
-      const teethH = Math.min(rp.box.h * .025, cavH * .58);
+      const teethH = Math.min(rp.box.h * .025, cavH * .55);
       if (teethH >= 2){
-        const teethA = clamp01((open - .15) / .14) * .54;
+        const teethA = clamp01((open - .12) / .12) * .60;
         const tw = .76;
         const edge = t => topAt(cx + t * halfW) + teethH * (1 - Math.pow(Math.abs(t) / tw, 2) * .5);
         const tg = ctx.createLinearGradient(0, yTopC, 0, yTopC + teethH);
@@ -3167,7 +3172,7 @@ const FaceForge = (() => {
       ctx.fill();
     }
 
-    /* dentes inferiores */
+    /* dentes inferiores — discretos, só em aberturas amplas (como na vida) */
     if (open > .30){
       const cavH2 = yBotC - yTopC;
       const th2 = Math.min(rp.box.h * .020, cavH2 * .42);
@@ -3219,29 +3224,30 @@ const FaceForge = (() => {
     ctx.fillStyle = fe;
     ctx.fillRect(cx - halfW - 3, yTopC - 6, halfW * 2 + 6, (yBotC - yTopC) + 12);
 
-    /* base derrete no lábio — v10: um pouco mais forte (a pintura desce mais) */
-    const bH = (yBotC - yTopC) * .3;
+    /* v11 · derretimento da base CURTO e contido: 15% do vão, leve —
+       só o bastante para não cortar em linha reta. A zona larga da v10
+       (30% / 42%) era o borrão sobre o lábio */
+    const bH = (yBotC - yTopC) * .15;
     const bfade = ctx.createLinearGradient(0, yBotC - bH, 0, yBotC);
     bfade.addColorStop(0, 'rgba(0,0,0,0)');
-    bfade.addColorStop(1, 'rgba(0,0,0,.42)');
+    bfade.addColorStop(1, 'rgba(0,0,0,.28)');
     ctx.fillStyle = bfade;
     ctx.fillRect(cx - halfW - 3, yBotC - bH, halfW * 2 + 6, bH + 2);
     ctx.globalCompositeOperation = 'source-over';
 
-    /* v10 · WET-LINE (lábio interno molhado): ao se desgrudarem, os lábios
-       expõem a face interna úmida do lábio inferior — faixa clara na base
-       da abertura. Era o detalhe morto (alpha 0) desde a v6; é um dos
-       maiores marcadores de boca real em foto */
-    const wlH = Math.max(2, (yBotC - yTopC) * .16);
+    /* v11 · WET-LINE FINA E INTERNA: termina ANTES do fim do vão — a faixa
+       úmida fica na transição, sem pisar no lábio da foto */
+    const wlH = Math.max(1.5, (yBotC - yTopC) * .12);
     const wlA = aIn * clamp01((open - .22) / .28);
     if (wlA > .01){
-      const wg = ctx.createLinearGradient(0, yBotC - wlH * 2.2, 0, yBotC);
-      wg.addColorStop(0,  rgbp(pal.wet) + '0)');
-      wg.addColorStop(.6, rgbp(pal.wet) + '0.14)');
-      wg.addColorStop(1,  rgbp(pal.wet) + '0.22)');
+      const wlY = yBotC - wlH;
+      const wg = ctx.createLinearGradient(0, wlY - wlH, 0, wlY);
+      wg.addColorStop(0,   rgbp(pal.wet) + '0)');
+      wg.addColorStop(.65, rgbp(pal.wet) + '0.13)');
+      wg.addColorStop(1,   rgbp(pal.wet) + '0.18)');
       ctx.globalAlpha = wlA;
       ctx.fillStyle = wg;
-      ctx.fillRect(cx - halfW * .92, yBotC - wlH * 2.2, halfW * 1.84, wlH * 2.2);
+      ctx.fillRect(cx - halfW * .92, wlY - wlH, halfW * 1.84, wlH);
       ctx.globalAlpha = aIn;
     }
     ctx.restore();   /* unclip + alpha */
