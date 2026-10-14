@@ -1738,14 +1738,25 @@ const ForensicCore = (() => {
     if (!R.metaCount && !QT.length && !(S.probe && S.probe.gpmd))
       add('syn', 1, 'Ausência total de metadados de captura (geração OU strip por re-encode)');
 
-    /* ── v2 · quadros: ELA + atividade ── */
+    /* quadros: ELA + atividade */
     if (F && F.ok){
       add('info', 0, 'ELA médio dos quadros: ' + F.elaMean.toFixed(2) + ' (CV ' + F.elaCV.toFixed(3) + ') — informativo');
       if (F.activityCV < .22 && F.frames && F.frames.length >= 5)
         add('syn', 1, 'Atividade inter-frame anormalmente uniforme (CV ' + F.activityCV.toFixed(3) + ') — padrão típico de geração de vídeo');
     }
 
-    /* ── v2 · AUDITORIA FACIAL: piscadas, olho morto, lábios × trilha ── */
+    /* ── v2.1 · LOOP SINTETIZAR→DETECTAR: o detector caça a própria FORGE ── */
+    if (F && F.ok && F.wm && F.wm.found)
+      add('syn', 4, "Marca d'água SINTÉTICO (SYNTH::DETECT FORGE) em " + F.wm.hits + '/' + F.wm.scanned +
+          ' quadros — conteúdo gerado pela bancada ofensiva com proveniência declarada (a lógica do C2PA dentro do projeto)');
+    if (F && F.ok && F.bg && F.bg.fracMove !== null){
+      if (F.bg.fracMove < .12)
+        add('syn', 2, 'Apenas ' + (F.bg.fracMove * 100).toFixed(1) + '% dos pixels variam entre quadros contíguos — cena sem ruído de sensor: compatível com animação de foto única (FORGE/SadTalker/LivePortrait)');
+      else if (F.bg.fracMove > .35)
+        add('auth', 1, 'Variação temporal distribuída pelo quadro (' + (F.bg.fracMove * 100).toFixed(0) + '% dos pixels) — ruído de sensor de captação real');
+    }
+
+    /* auditoria facial: piscadas, olho morto, lábios × trilha */
     if (F && F.ok && F.face && F.face.ok){
       const FA = F.face;
       const talking = AC && AC.ok && AC.silenceRatio < .45 && AC.duration > 2;
@@ -2050,8 +2061,7 @@ const VideoLab = (() => {
       }
       bar.end();
 
-      /* ── v2 · JANELAS CONTÍGUAS para a auditoria facial ──
-         piscada dura 100–300 ms: quadros esparsos jamais a capturam */
+      /* janelas contíguas (bursts) para auditoria facial + métricas de loop */
       const burstFrames = [];
       const NB = 3, LEN = 10, STEP = 1 / 15;
       const bw2 = 256, bh2 = Math.max(2, Math.round(256 * vh / vw));
@@ -2073,6 +2083,57 @@ const VideoLab = (() => {
         }
       }
       bbar.end();
+
+      /* ── v2.1 · LOOP SINTETIZAR→DETECTAR: caça ao artefato da própria FORGE ──
+         (a) MARCA D'ÁGUA: todo quadro gerado pela FORGE sai carimbado com
+             "SINTÉTICO · SYNTH::DETECT FORGE" (coral #ff5f56, canto inferior
+             esquerdo). O detector LÊ a própria marca — a lógica do C2PA
+             aplicada dentro do projeto: o gerador declara, o detector lê */
+      let wmHits = 0;
+      for (const f of burstFrames){
+        const cw = f.cv.width, chh = f.cv.height;
+        const rx = 0, ry = Math.floor(chh * .82);
+        const rw = Math.floor(cw * .5), rh = chh - ry;
+        if (rw < 8 || rh < 4) continue;
+        const d = f.cv.getContext('2d').getImageData(rx, ry, rw, rh).data;
+        let coral = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4){
+          const R = d[i], G = d[i + 1], B = d[i + 2];
+          /* coral da marca: R alto, G médio (~95), B≈G — diferencia de
+             vermelho puro (G≈0), pele (G>130) e lábios em posição errada */
+          if (R > 170 && G > 40 && G < 130 && B < 130 && (R - G) > 50 && Math.abs(G - B) < 40) coral++;
+          n++;
+        }
+        if (n && coral / n > .004) wmHits++;
+      }
+      const wm = { hits: wmHits, scanned: burstFrames.length,
+                   found: burstFrames.length >= 6 && wmHits >= burstFrames.length * .85 };
+      emit && emit((wm.found ? '◆ MARCA' : 'marca') + " d'água SINTÉTICO (FORGE): " + wmHits + '/' +
+                   burstFrames.length + ' quadros', wm.found ? 'err' : 'plain');
+
+      /* (b) FUNDO CONGELADO: câmera real tem ruído de sensor — em quadros
+             contíguos o quadro INTEIRO varia um pouco. Animação de foto
+             (FORGE, SadTalker, LivePortrait) move só a face: o fundo fica
+             pixel-a-pixel idêntico. Sem ruído temporal = sem sensor */
+      let movedSum = 0, bgPairs = 0;
+      for (let i = 1; i < burstFrames.length; i++){
+        const A = burstFrames[i - 1], B2 = burstFrames[i];
+        if (B2.t - A.t > .25) continue;
+        const w3 = A.cv.width, h3 = A.cv.height;
+        const da = A.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
+        const db = B2.cv.getContext('2d').getImageData(0, 0, w3, h3).data;
+        let moved = 0, n = 0;
+        for (let p = 0; p < da.length; p += 4){
+          const d = Math.abs(da[p] - db[p]) + Math.abs(da[p+1] - db[p+1]) + Math.abs(da[p+2] - db[p+2]);
+          if (d > 6) moved++;
+          n++;
+        }
+        if (n){ movedSum += moved / n; bgPairs++; }
+      }
+      const bg = { pairs: bgPairs, fracMove: bgPairs ? movedSum / bgPairs : null };
+      if (bg.fracMove !== null)
+        emit && emit('variação temporal entre quadros contíguos: ' + (bg.fracMove * 100).toFixed(1) +
+                     '% dos pixels (' + bgPairs + ' pares)' + (bg.fracMove < .12 ? ' — fundo congelado' : ''), bg.fracMove < .12 ? 'warn' : 'plain');
 
       const ebar = progressBar('ELA: recomprimindo quadros em JPEG e medindo resíduos');
       for (let i = 0; i < frames.length; i++){
@@ -2096,7 +2157,7 @@ const VideoLab = (() => {
       const am = acts.reduce((x, y) => x + y, 0) / (acts.length || 1);
       const acv = Math.sqrt(acts.reduce((x, y) => x + (y - am) * (y - am), 0) / (acts.length || 1)) / (am || 1);
 
-      /* v2 · auditoria facial (piscadas / olho morto / lábios × trilha) */
+      /* auditoria facial (piscadas / olho morto / lábios × trilha) */
       let face = { ok: false, why: 'não executada' };
       if (burstFrames.length){
         try { face = await FaceAudit.audit(burstFrames, emit); }
@@ -2104,7 +2165,7 @@ const VideoLab = (() => {
       }
       if (!face.ok) emit && emit('auditoria facial indisponível — ' + face.why, 'warn');
       cleanup();
-      return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv, face };
+      return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv, face, wm, bg };
     } catch (e){
       cleanup();
       return { ok:false, why: (e && e.message) || 'erro de decodificação' };
