@@ -2719,15 +2719,15 @@ const FaceForge = (() => {
       xm: g.mouth.x,   ym: g.lipTop.y
     };
     rp.halfW = Math.max(8, g.mouthW * .46);
-    /* v8.3 · CURVA COMPRESSIVA + teto rígido: mouth^1.25 amortece os PICOS
-       de voz (os momentos "estranhos") sem esmorecer a fala comum.
-       Fala comum ≈ 3–5% da altura do rosto · boca escancarada ≈ 11% */
+    /* v8.3 · curva compressiva + teto rígido (mantido — você aprovou) */
     rp.drop = Math.min(Math.pow(rv.mouth, 1.25) * b.h * .12, b.h * .11);
 
     const smile = Math.max(0, rv.cur.smile);
     const asym = Math.max(-.5, Math.min(.5, rv.asym + rv.twitch * .12)) * Math.max(0, smile - .12) / .72;
     rp.asym = asym; rp.smile = smile; rp.wide = rv.width;
-    rp.dropAsym = .035 * Math.sin(rv.lastT * .6 + 1.7);
+    /* v11.1 · dropAsym REMOVIDO: a assimetria dinâmica da v8.2 criava
+       períodos longos com um lado da mandíbula descendo mais — era o
+       "lado direito puxado para baixo". Mandíbula agora 100% simétrica */
 
     const fOut = smile * .20;
     const lift = smile * b.h * .030;
@@ -2737,7 +2737,6 @@ const FaceForge = (() => {
     const spread = rv.width * g.mouthW * .08;
     rp.cLdx = -g.mouthW * fOut * (1 + asym) - spread;
     rp.cRdx =  g.mouthW * fOut * (1 - asym) + spread;
-    /* v8.3 · cantos acompanham a mandíbula de forma quase imperceptível */
     const cornerDrop = rp.drop * .06;
     rp.cLdy = -lift * (1 + asym) + cornerDrop;
     rp.cRdy = -lift * (1 - asym) + cornerDrop;
@@ -2781,13 +2780,11 @@ const FaceForge = (() => {
     const enter = ss(s - 7, s + 2, y);
     if (enter <= 0) return 0;
     const t2 = clamp01((y - s) / Math.max(1, rp.chinY - s));
-    /* v8.3 · rotação discreta (queixo +18% no máximo, era +30%) e
-       atenuação lateral maior: as bochechas praticamente não descem */
+    /* v11.1 · mesma rotação suave da v8.3, SEM o fator de assimetria */
     const rot = .95 + .18 * t2;
     const b = rp.box;
     const lat = 1 - .42 * clamp01(Math.abs(x - b.cx) / (b.w * .5));
-    const side = x < b.cx ? (1 + rp.dropAsym) : (1 - rp.dropAsym);
-    return rp.drop * enter * rot * lat * side;
+    return rp.drop * enter * rot * lat;
   }
 
   function rigDisplace(x, y, p){
@@ -3237,19 +3234,19 @@ const FaceForge = (() => {
 
     /* v11 · WET-LINE FINA E INTERNA: termina ANTES do fim do vão — a faixa
        úmida fica na transição, sem pisar no lábio da foto */
-    const wlH = Math.max(1.5, (yBotC - yTopC) * .12);
-    const wlA = aIn * clamp01((open - .22) / .28);
-    if (wlA > .01){
-      const wlY = yBotC - wlH;
-      const wg = ctx.createLinearGradient(0, wlY - wlH, 0, wlY);
-      wg.addColorStop(0,   rgbp(pal.wet) + '0)');
-      wg.addColorStop(.65, rgbp(pal.wet) + '0.13)');
-      wg.addColorStop(1,   rgbp(pal.wet) + '0.18)');
-      ctx.globalAlpha = wlA;
-      ctx.fillStyle = wg;
-      ctx.fillRect(cx - halfW * .92, wlY - wlH, halfW * 1.84, wlH);
-      ctx.globalAlpha = aIn;
-    }
+       const wlH = Math.max(1.5, (yBotC - yTopC) * .12);
+       const wlA = aIn * clamp01((open - .22) / .28);
+       if (wlA > .01){
+         const wlY = yBotC - wlH;
+         const wg = ctx.createLinearGradient(0, wlY - wlH, 0, wlY);
+         wg.addColorStop(0,   rgbp(pal.wet) + '0)');
+         wg.addColorStop(.65, rgbp(pal.wet) + '0.13)');
+         wg.addColorStop(1,   rgbp(pal.wet) + '0.18)');
+         ctx.globalAlpha = wlA;
+         ctx.fillStyle = wg;
+         ctx.fillRect(cx - halfW * .92, wlY - wlH, halfW * 1.84, wlH);
+         ctx.globalAlpha = aIn;
+       }
     ctx.restore();   /* unclip + alpha */
 
     /* borda do lábio superior — discreta */
