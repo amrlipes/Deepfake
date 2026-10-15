@@ -281,13 +281,12 @@ footer{border-top:1px solid var(--line);padding:40px 0;margin-top:20px}
    Grid técnico, sweep de varredura, chips HUD e logo institucional.
 ════════════════════════════════════════════════════════════════ */
 
-/* ── FECAP · canto superior direito ── */
+/* ── FECAP · canto superior direito — logo verde direto no dark ── */
 .brand-org{
-  margin-left:18px;flex:none;display:flex;align-items:center;
-  height:34px;padding:4px 10px;background:#f2f2ee;border:1px solid var(--line-2);
+  margin-left:18px;flex:none;display:flex;align-items:center;height:30px;
 }
 .brand-org img{display:block;height:100%;width:auto;object-fit:contain}
-.org-badge{font:800 13px/1 var(--mono);letter-spacing:.22em;color:#0d3a24;white-space:nowrap}
+.org-badge{font:800 16px/1 var(--sans);letter-spacing:.14em;color:var(--green)}
 
 /* ── HERO: grid técnico de linhas + glow institucional no topo-direita ── */
 .hero::before{
