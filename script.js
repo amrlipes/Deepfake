@@ -2093,29 +2093,39 @@ const VideoLab = (() => {
       }
       bbar.end();
 
-      /* marca d'água da FORGE (coral #ff5f56, canto inferior esquerdo) */
-      let wmHits = 0, wmBest = 0;
-      for (const f of burstFrames){
-        const cw = f.cv.width, chh = f.cv.height;
-        const rx = 0, ry = Math.floor(chh * .78);
-        const rw = Math.floor(cw * .70), rh = chh - ry;
-        if (rw < 8 || rh < 4) continue;
-        const d = f.cv.getContext('2d').getImageData(rx, ry, rw, rh).data;
-        let coral = 0, n = 0;
-        for (let i = 0; i < d.length; i += 4){
-          const R = d[i], G = d[i + 1], B = d[i + 2];
-          if (R > 160 && G > 30 && G < 135 && B < 135 && (R - G) > 70 && Math.abs(G - B) < 45) coral++;
-          n++;
-        }
-        const dens = n ? coral / n : 0;
-        if (dens > wmBest) wmBest = dens;
-        if (dens > .003) wmHits++;
-      }
-      const wm = { hits: wmHits, scanned: burstFrames.length,
-                   found: burstFrames.length >= 6 && wmHits >= burstFrames.length * .7 };
-      emit && emit((wm.found ? '◆ MARCA' : 'marca') + " d'água SINTÉTICO (FORGE): " + wmHits + '/' +
-                   burstFrames.length + ' quadros' + (wm.found ? '' : ' (melhor densidade ' + (wmBest * 100).toFixed(2) + '%)'),
-                   wm.found ? 'err' : 'plain');
+      /* ── v2.4 · MARCA D'ÁGUA em resolução PLENA — os bursts de 256 px
+         reduziam a marca (texto ~25 px) para ~7 px: o VP9 guarda a cor
+         à METADE da resolução (croma 4:2:0) e apaga texto tão fino.
+         Agora: quadros DEDICADOS a 640 px, só para este scan ── */
+         let wmHits = 0, wmBest = 0, wmScanned = 0;
+         const mw = Math.min(640, vw), mh = Math.max(2, Math.round(mw * vh / vw));
+         const mcv = document.createElement('canvas'); mcv.width = mw; mcv.height = mh;
+         const mcx = mcv.getContext('2d', { willReadFrequently: true });
+         for (let q = 0; q < 4; q++){
+           v.currentTime = Math.min(dur * (.15 + .25 * q), Math.max(0, dur - .05));
+           try { await once(v, 'seeked', 5000); } catch { continue; }
+           mcx.drawImage(v, 0, 0, mw, mh);
+           const ry = Math.floor(mh * .78);
+           const rw = Math.floor(mw * .70), rh = mh - ry;
+           if (rw < 8 || rh < 4) continue;
+           const d = mcx.getImageData(0, ry, rw, rh).data;
+           let coral = 0, n = 0;
+           for (let i = 0; i < d.length; i += 4){
+             const R = d[i], G = d[i + 1], B = d[i + 2];
+             if (R > 150 && G > 35 && G < 140 && B < 140 && (R - G) > 50 && Math.abs(G - B) < 42) coral++;
+             n++;
+           }
+           const dens = n ? coral / n : 0;
+           if (dens > wmBest) wmBest = dens;
+           if (dens > .002) wmHits++;
+           wmScanned++;
+           await sleep(0);
+         }
+         const wm = { hits: wmHits, scanned: wmScanned,
+                      found: wmScanned >= 3 && wmHits >= Math.ceil(wmScanned * .6) };
+         emit && emit((wm.found ? '◆ MARCA' : 'marca') + " d'água SINTÉTICO (FORGE): " + wmHits + '/' +
+                      wmScanned + ' quadros' + (wm.found ? '' : ' (melhor densidade ' + (wmBest * 100).toFixed(2) + '%)'),
+                      wm.found ? 'err' : 'plain');
 
       const ebar = progressBar('ELA: recomprimindo quadros em JPEG e medindo resíduos');
       for (let i = 0; i < frames.length; i++){
