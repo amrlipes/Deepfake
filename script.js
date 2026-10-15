@@ -1745,15 +1745,19 @@ const ForensicCore = (() => {
         add('syn', 1, 'Atividade inter-frame anormalmente uniforme (CV ' + F.activityCV.toFixed(3) + ') — padrão típico de geração de vídeo');
     }
 
-    /* ── v2.1 · LOOP SINTETIZAR→DETECTAR: o detector caça a própria FORGE ── */
-    if (F && F.ok && F.wm && F.wm.found)
-      add('syn', 4, "Marca d'água SINTÉTICO (SYNTH::DETECT FORGE) em " + F.wm.hits + '/' + F.wm.scanned +
+    /* ── v2.3 · LOOP SINTETIZAR→DETECTAR: marca d'água + fundo congelado.
+       As métricas viajam DENTRO de F.face (estrada comprovada) — não
+       dependem de nenhuma linha extra no App ── */
+    const WM = (F && F.ok && (F.wm || (F.face && F.face.wm))) || null;
+    const BG = (F && F.ok && (F.bg || (F.face && F.face.bg))) || null;
+    if (WM && WM.found)
+      add('syn', 4, "Marca d'água SINTÉTICO (SYNTH::DETECT FORGE) em " + WM.hits + '/' + WM.scanned +
           ' quadros — conteúdo gerado pela bancada ofensiva com proveniência declarada (a lógica do C2PA dentro do projeto)');
-    if (F && F.ok && F.bg && F.bg.fracMove !== null){
-      if (F.bg.fracMove < .12)
-        add('syn', 2, 'Apenas ' + (F.bg.fracMove * 100).toFixed(1) + '% dos pixels variam entre quadros contíguos — cena sem ruído de sensor: compatível com animação de foto única (FORGE/SadTalker/LivePortrait)');
-      else if (F.bg.fracMove > .35)
-        add('auth', 1, 'Variação temporal distribuída pelo quadro (' + (F.bg.fracMove * 100).toFixed(0) + '% dos pixels) — ruído de sensor de captação real');
+    if (BG && BG.fracMove !== null){
+      if (BG.fracMove < .12)
+        add('syn', 2, 'Apenas ' + (BG.fracMove * 100).toFixed(1) + '% dos pixels FORA da face variam entre quadros contíguos — cena sem ruído de sensor: compatível com animação de foto única (FORGE/SadTalker/LivePortrait)');
+      else if (BG.fracMove > .35)
+        add('auth', 1, 'Variação temporal distribuída pelo quadro (' + (BG.fracMove * 100).toFixed(0) + '% dos pixels) — ruído de sensor de captação real');
     }
 
     /* auditoria facial: piscadas, olho morto, lábios × trilha */
@@ -2177,7 +2181,10 @@ const VideoLab = (() => {
         emit && emit('variação temporal FORA da face: ' + (bg.fracMove * 100).toFixed(1) +
                      '% dos pixels (' + bgPairs + ' pares)' + (bg.fracMove < .07 ? ' — FUNDO CONGELADO' : ''),
                      bg.fracMove < .07 ? 'warn' : 'plain');
-
+      /* v2.3 · as métricas do loop viajam DENTRO de face: a linha do App
+         (face: fr.face) já comprovadamente as entrega ao pipeline */
+         face.wm = wm;
+         face.bg = bg;
       cleanup();
       return { ok:true, w: vw, h: vh, duration: dur, frames, activityMean: am, activityCV: acv, face, wm, bg };
     } catch (e){
