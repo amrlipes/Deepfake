@@ -276,3 +276,101 @@ footer{border-top:1px solid var(--line);padding:40px 0;margin-top:20px}
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
   html{scroll-behavior:auto}
 }
+/* ═══════════════════════════════════════════════════════════════
+   SKIN v6.14 · CYBER-FORENSIC (append — não substitui regras)
+   Grid técnico, sweep de varredura, chips HUD e logo institucional.
+════════════════════════════════════════════════════════════════ */
+
+/* ── FECAP · canto superior direito ── */
+.brand-org{
+  margin-left:18px;flex:none;display:flex;align-items:center;
+  height:34px;padding:4px 10px;background:#f2f2ee;border:1px solid var(--line-2);
+}
+.brand-org img{display:block;height:100%;width:auto;object-fit:contain}
+.org-badge{font:800 13px/1 var(--mono);letter-spacing:.22em;color:#0d3a24;white-space:nowrap}
+
+/* ── HERO: grid técnico de linhas + glow institucional no topo-direita ── */
+.hero::before{
+  background-image:
+    radial-gradient(900px 420px at 85% -15%, rgba(78,224,141,.10), transparent 60%),
+    linear-gradient(rgba(78,224,141,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(78,224,141,.055) 1px, transparent 1px);
+  background-size:100% 100%, 44px 44px, 44px 44px;
+}
+/* sweep de varredura — a linha que desce o hero (varredura de scanner) */
+.hero::after{
+  content:"";position:absolute;left:0;right:0;top:0;height:2px;pointer-events:none;
+  background:linear-gradient(90deg, transparent, rgba(78,224,141,.5), transparent);
+  opacity:0;animation:heroScan 9s linear infinite;
+}
+@keyframes heroScan{
+  0%{transform:translateY(-4px);opacity:0}
+  6%{opacity:.8}
+  55%{opacity:.45}
+  100%{transform:translateY(560px);opacity:0}
+}
+/* cursor de terminal piscando no título */
+.hero h1::after{
+  content:"_";color:var(--green);margin-left:.06em;
+  animation:caretBlink 1.1s steps(1) infinite;
+}
+@keyframes caretBlink{50%{opacity:0}}
+
+/* ── faixa de specs ── */
+.spec-strip{
+  list-style:none;display:flex;flex-wrap:wrap;margin-top:34px;
+  border:1px solid var(--line);border-left:2px solid var(--green);
+  background:linear-gradient(180deg, rgba(78,224,141,.045), transparent);
+}
+.spec-strip li{
+  display:flex;flex-direction:column;gap:3px;padding:12px 22px;min-width:120px;
+  border-right:1px solid var(--line);
+}
+.spec-strip li:last-child{border-right:0}
+.spec-strip b{font:700 17px var(--mono);color:var(--green);letter-spacing:.02em}
+.spec-strip span{font:500 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
+
+/* ── chips HUD: número da seção vira etiqueta ── */
+.sec-num{border:1px solid rgba(78,224,141,.35);padding:8px 12px;background:rgba(78,224,141,.06)}
+
+/* ── navegação: underline que abre da esquerda ── */
+.nav a{position:relative}
+.nav a::after{
+  content:"";position:absolute;left:0;right:100%;bottom:-4px;height:1px;
+  background:var(--green);transition:right .18s ease;
+}
+.nav a:hover::after,.nav a:focus-visible::after{right:0}
+
+/* ── painéis: borda acende no hover ── */
+.panel{transition:border-color .25s}
+.panel:hover{border-color:rgba(78,224,141,.5)}
+
+/* ── dropzone: feixe de varredura diagonal no hover ── */
+.dropzone{position:relative;overflow:hidden}
+.dropzone::after{
+  content:"";position:absolute;top:0;bottom:0;left:-40%;width:34%;
+  background:linear-gradient(105deg, transparent, rgba(78,224,141,.12), transparent);
+  transform:skewX(-14deg);opacity:0;pointer-events:none;
+}
+.dropzone:hover::after,.dropzone:focus-visible::after{opacity:1;animation:dzSweep 1.5s linear infinite}
+@keyframes dzSweep{to{left:115%}}
+
+/* ── botão primário: halo discreto ── */
+.btn-primary{transition:background .15s,color .15s,box-shadow .25s}
+.btn-primary:hover{box-shadow:0 0 26px rgba(78,224,141,.22)}
+
+/* ── footer institucional ── */
+.footer-credit{
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 24px;
+  border-top:1px solid var(--line);margin-top:26px;padding-top:16px;width:100%;
+  font:500 9.5px var(--mono);letter-spacing:.16em;color:var(--text-3);text-transform:uppercase;
+}
+.footer-credit .fc-org{color:var(--green)}
+
+/* ── responsivo da skin ── */
+@media (max-width:900px){ .nav{display:none} }
+@media (max-width:640px){
+  .brand-org{margin-left:auto;height:26px;padding:3px 7px}
+  .org-badge{font-size:11px}
+  .spec-strip li{flex:1 1 33%;min-width:0;padding:10px 12px;border-bottom:1px solid var(--line)}
+}

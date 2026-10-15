@@ -60,6 +60,10 @@
       <span>LOCAL</span>
       <span id="clock">--:--:--</span>
     </div>
+    <div class="brand-org" title="FECAP — Fundação Escola de Comércio Álvares Penteado">
+      <img src="fecap.png" alt="Logo da FECAP"
+           onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'org-badge',textContent:'FECAP'}))">
+    </div>
   </div>
 </header>
 
@@ -83,7 +87,14 @@
     </div>
     <p class="pipeline" aria-label="Etapas">
       <b>01</b> estrutura do arquivo <i>→</i> <b>02</b> metadados <i>→</i> <b>03</b> proveniência / quadros / acústica <i>→</i> <b>04</b> assinaturas de ia
-    </p>
+    </p>    
+    <ul class="spec-strip" aria-label="Especificações da bancada">
+      <li><b>100%</b><span>client-side</span></li>
+      <li><b>0</b><span>bytes enviados</span></li>
+      <li><b>19+</b><span>formatos de mídia</span></li>
+      <li><b>478</b><span>landmarks faciais</span></li>
+      <li><b>SHA-256</b><span>hash por evidência</span></li>
+    </ul>
   </div>
 </section>
 
@@ -321,6 +332,11 @@
       a mecânica que LivePortrait/Wav2Lip automatizam com redes neurais. Os artefatos são corpus de teste.
     </div>
     <div class="footer-block">
+      <div class="footer-credit">
+        <span>Projeto acadêmico · Redes de Computadores</span>
+        <span class="fc-org">FECAP — Fundação Escola de Comércio Álvares Penteado</span>
+        <span>SYNTH::DETECT</span>
+      </div>
       <strong>Privacidade</strong><br>
       Processamento 100% client-side: nenhum byte é enviado a servidores. exifr (EXIF) e MediaPipe
       (landmarks) vêm de CDN e são opcionais — a ferramenta degrada sem quebrar.
