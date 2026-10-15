@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <!-- ══════════════════════════════════════════════════════════════════
-     SYNTH::DETECT v6.13 — Bancada Forense + Bancada Ofensiva (FORGE)
+     DEEPFAKE::DETECT v6.13 — Bancada Forense + Bancada Ofensiva (FORGE)
      IMAGEM + ÁUDIO + VÍDEO · 3 arquivos · zero build · zero config
 
      DETECÇÃO:  contêiner → metadados → C2PA/ELA/acústica → assinaturas
@@ -20,12 +20,12 @@
      relativos funcionam no subcaminho /repo/. HTTPS nativo (exigido
      por getUserMedia). Recomendado: arquivo vazio .nojekyll na raiz.
      Local: use `npx serve` (file:// bloqueia mic/câmera).
-══════════════════════════════════════════════════════════════════ -->
+═════════════════════════════════════════════════════════════════ -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
 <meta name="description" content="Bancada forense e bancada ofensiva para mídia sintética: inspeção de imagem, áudio e vídeo + conversão de voz, reencenação facial com expressões e animação de fotos (deepfake educativo) sobre os próprios sinais do operador.">
-<title>SYNTH::DETECT — Forense & Mecânica Ofensiva de Mídia Sintética</title>
+<title>DEEPFAKE::DETECT — Forense &amp; Mecânica Ofensiva de Mídia Sintética</title>
 
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="%230a0e0b"/><rect x="3" y="3" width="4" height="4" fill="%234ee08d"/><rect x="9" y="3" width="4" height="4" fill="%234ee08d" opacity=".3"/><rect x="3" y="9" width="4" height="4" fill="%234ee08d" opacity=".3"/><rect x="9" y="9" width="4" height="4" fill="%23ff5f56"/></svg>'>
 
@@ -56,9 +56,8 @@
       <a href="#limites">Limites</a>
     </nav>
     <div class="header-status">
-      <span></span>
-      <span></span>
-      <span</span>
+      <span class="live-dot" aria-hidden="true"></span>
+      <span>LOCAL</span>
     </div>
     <div class="brand-org" title="FECAP — Fundação Escola de Comércio Álvares Penteado">
       <img src="fecap.png" alt="Logo da FECAP"
@@ -72,7 +71,7 @@
 <!-- ══════════════ HERO ══════════════ -->
 <section class="hero">
   <div class="container">
-    <p class="eyebrow">// DETECÇÃO DE IA & MECÂNICA OFENSIVA</p>
+    <p class="eyebrow">// DETECÇÃO DE IA &amp; MECÂNICA OFENSIVA</p>
     <h1>Forense de mídia<br>na era da <em>IA ofensiva</em></h1>
     <p class="lead">
       A <strong>detecção</strong> dissecta arquivos byte a byte — estrutura,
@@ -87,7 +86,7 @@
     </div>
     <p class="pipeline" aria-label="Etapas">
       <b>01</b> estrutura do arquivo <i>→</i> <b>02</b> metadados <i>→</i> <b>03</b> proveniência / quadros / acústica <i>→</i> <b>04</b> assinaturas de ia
-    </p>    
+    </p>
     <ul class="spec-strip" aria-label="Especificações da bancada">
       <li><b>100%</b><span>client-side</span></li>
       <li><b>0</b><span>bytes enviados</span></li>
@@ -181,7 +180,7 @@
           <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
           <div class="term-head">
             <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span class="term-title">forensic-bench — synth-detect v6.13 · img+aud+vid+forge</span>
+            <span class="term-title">forensic-bench — deepfake-detect v6.13 · img+aud+vid+forge</span>
             <span class="term-badge">LOCAL</span>
           </div>
           <div class="term-body" id="termBody" role="log" aria-live="polite" aria-label="Log da análise em tempo real"></div>
@@ -332,15 +331,16 @@
       a mecânica que LivePortrait/Wav2Lip automatizam com redes neurais. Os artefatos são corpus de teste.
     </div>
     <div class="footer-block">
-      <div class="footer-credit">
-        <span>Projeto acadêmico · Redes de Computadores</span>
-        <span class="fc-org">FECAP — Fundação Escola de Comércio Álvares Penteado</span>
-        <span>DEEPFAKE::DETECT</span>
-        <span class="fc-org">Dev: Felipe Amaro & Chat Z</span>
-      </div>
-      <strong>Grupo: Felipe Amaro, Arthur Ramos, Daniel Kikuti, João Pedro Sierra</strong><br>
+      <strong>Privacidade</strong><br>
       Processamento 100% client-side: nenhum byte é enviado a servidores. exifr (EXIF) e MediaPipe
       (landmarks) vêm de CDN e são opcionais — a ferramenta degrada sem quebrar.
+    </div>
+    <div class="footer-credit">
+      <span>Projeto acadêmico · Redes de Computadores</span>
+      <span class="fc-org">FECAP — Fundação Escola de Comércio Álvares Penteado</span>
+      <span>DEEPFAKE::DETECT</span>
+      <span>Grupo: Felipe Amaro · Arthur Ramos · Daniel Kikuti · João Pedro Sierra</span>
+      <span class="fc-org">Dev: Felipe Amaro &amp; Chat Z</span>
     </div>
   </div>
 </footer>
