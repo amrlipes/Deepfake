@@ -4636,10 +4636,6 @@ const App = (() => {
       }, 200);
     });
 
-    const clock = $('#clock');
-    const tick = () => { clock.textContent = new Date().toLocaleTimeString('pt-BR', { hour12: false }); };
-    tick(); setInterval(tick, 1000);
-
     PixelArt.mountAll();
     VoiceForge.init();
     FaceForge.init();
